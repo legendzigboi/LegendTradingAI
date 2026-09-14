@@ -3,22 +3,35 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+env/
 
 # Secrets
 .env
 .env.*
+!.env.example
 
-# Data & logs
-data/
-logs/
+# Data
+data/*
+!data/README.md
+*.csv
+*.parquet
+*.feather
+
+# Logs
+logs/*
+!logs/.gitkeep
+*.log
 
 # Model artifacts
 models/**/*.pkl
 models/**/*.joblib
 models/**/*.pt
+models/**/*.pth
+models/**/*.onnx
 
 # Jupyter
 .ipynb_checkpoints/
 
 # OS
 .DS_Store
+Thumbs.db
