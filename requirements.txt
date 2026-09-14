@@ -1,1 +1,10 @@
-
+python-dotenv
+pyyaml
+requests
+python-telegram-bot
+pandas
+numpy
+scikit-learn
+xgboost
+sqlalchemy
+pytz
