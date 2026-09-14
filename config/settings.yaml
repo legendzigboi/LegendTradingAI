@@ -1,1 +1,135 @@
+# ============================================================
+# LEGEND TRADING AI — SETTINGS
+# ============================================================
+# Start small: crypto only. Expand one asset class at a time
+# AFTER the pipeline is proven end-to-end.
+# ============================================================
 
+app:
+  name: "Legend Trading AI"
+  version: "0.1.0"
+  timezone: "UTC"
+
+# ------------------------------------------------------------
+# REPORTING
+# ------------------------------------------------------------
+reporting:
+  interval_hours: 5
+  daily_summary_hour: 23
+  send_weak_signals: true
+  send_no_signal_message: true
+  top_candidates_in_no_signal: 5   # only show top N in ⚪ message
+
+# ------------------------------------------------------------
+# SIGNAL THRESHOLDS
+# ------------------------------------------------------------
+signals:
+  strong_confidence_min: 0.70
+  weak_confidence_min: 0.55
+  entry_window_minutes: 15
+
+# ------------------------------------------------------------
+# RISK
+# ------------------------------------------------------------
+risk:
+  max_signals_per_day: 10
+  cooldown_minutes_per_symbol: 15
+  max_open_trades: 3
+  daily_loss_limit_pct: 2.0
+
+# ------------------------------------------------------------
+# MODEL
+# ------------------------------------------------------------
+model:
+  champion_version: "v0.1"
+  registry_path: "models/registry.json"
+  mode: "paper"                    # paper | live
+
+# ------------------------------------------------------------
+# MARKET UNIVERSE
+# ------------------------------------------------------------
+# Start with crypto only. Enable others one at a time.
+# ============================================================
+
+markets:
+
+  crypto:
+    enabled: true
+    discover_additional_symbols: false   # keep fixed list at first
+    symbols:
+      - BTC/USDT
+      - ETH/USDT
+      - SOL/USDT
+      - BNB/USDT
+      - XRP/USDT
+      - ADA/USDT
+      - DOGE/USDT
+      - AVAX/USDT
+      - LINK/USDT
+      - DOT/USDT
+      - LTC/USDT
+      - MATIC/USDT
+      - ATOM/USDT
+      - NEAR/USDT
+      - ARB/USDT
+      - OP/USDT
+
+  forex:
+    enabled: false
+    note: "Enable after crypto pipeline is proven."
+    discover_additional_symbols: false
+    symbols: []
+
+  stocks:
+    enabled: false
+    note: "Requires paid data provider (Polygon/Alpaca)."
+    discover_additional_symbols: false
+    symbols: []
+
+  indices:
+    enabled: false
+    note: "Requires paid data provider."
+    discover_additional_symbols: false
+    symbols: []
+
+  commodities:
+    enabled: false
+    note: "Requires paid data provider."
+    discover_additional_symbols: false
+    symbols: []
+
+  futures:
+    enabled: false
+    note: "CME data is expensive. Defer."
+    discover_additional_symbols: false
+    symbols: []
+
+  etfs:
+    enabled: false
+    note: "Requires paid data provider."
+    discover_additional_symbols: false
+    symbols: []
+
+  otc:
+    enabled: false
+    note: "Never auto-trust OTC. Only with verified exact-instrument feed."
+    require_verified_feed: true
+    require_exact_instrument_data: true
+    require_historical_data: true
+    require_live_data: true
+
+# ------------------------------------------------------------
+# DATA DISCOVERY RULES
+# ------------------------------------------------------------
+discovery:
+  enabled: true
+  discover_new_symbols: false       # flip to true once base works
+  require_historical_data: true
+  require_live_data: true
+  target_historical_years: 5
+  reject_bad_data: true
+  reject_missing_data: true
+  reject_duplicate_data: true
+  require_liquidity_check: true
+  require_spread_check: true
+  require_market_eligibility: true
