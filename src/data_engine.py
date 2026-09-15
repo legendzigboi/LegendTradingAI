@@ -73,13 +73,13 @@ class BinanceClient:
     """Thin wrapper around Binance public endpoints with retry logic."""
 
     def __init__(self, min_delay: float = 0.25, max_retries: int = 5):
-    self.session = requests.Session()
-    # Critical fix: WARP + keep-alive breaks Python requests.
-    # Force fresh connection per request.
-    self.session.headers.update({"Connection": "close"})
-    self.min_delay = min_delay
-    self.max_retries = max_retries
-    self._last_call = 0.0
+        self.session = requests.Session()
+        # WARP + keep-alive breaks Python requests.
+        # Force a fresh connection per request.
+        self.session.headers.update({"Connection": "close"})
+        self.min_delay = min_delay
+        self.max_retries = max_retries
+        self._last_call = 0.0
 
     def _wait(self):
         elapsed = time.time() - self._last_call
@@ -87,7 +87,7 @@ class BinanceClient:
             time.sleep(self.min_delay - elapsed)
         self._last_call = time.time()
 
-    def get(self, path: str, params: Optional[dict] = None) -> dict | list:
+    def get(self, path: str, params: Optional[dict] = None):
         url = BINANCE_BASE + path
         for attempt in range(1, self.max_retries + 1):
             self._wait()
@@ -109,7 +109,6 @@ class BinanceClient:
                     time.sleep(backoff)
                     continue
 
-                # 4xx other than 429 — likely a real error
                 print(f"    ❌ HTTP {r.status_code}: {r.text[:200]}")
                 return []
 
@@ -125,9 +124,11 @@ class BinanceClient:
 # ============================================================
 # Symbol discovery
 # ============================================================
-def get_all_spot_usdt_symbols(client: BinanceClient) -> list[str]:
+def get_all_spot_usdt_symbols(client: BinanceClient) -> list:
     """Return all active spot USDT-quoted symbols from Binance."""
     info = client.get(EXCHANGE_INFO)
+    if not isinstance(info, dict):
+        return []
     symbols = []
     for s in info.get("symbols", []):
         if (
@@ -139,24 +140,26 @@ def get_all_spot_usdt_symbols(client: BinanceClient) -> list[str]:
     return sorted(set(symbols))
 
 
-def get_24h_quote_volume(client: BinanceClient) -> dict[str, float]:
+def get_24h_quote_volume(client: BinanceClient) -> dict:
     """Return {symbol: 24h_quote_volume_usdt}."""
     data = client.get(TICKER_24H)
     out = {}
+    if not isinstance(data, list):
+        return out
     for row in data:
         try:
             out[row["symbol"]] = float(row["quoteVolume"])
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError):
             continue
     return out
 
 
 def filter_eligible_symbols(
-    all_symbols: list[str],
-    volumes: dict[str, float],
+    all_symbols: list,
+    volumes: dict,
     min_volume_usdt: float = 5_000_000,
     max_symbols: int = 30,
-) -> list[str]:
+) -> list:
     """Filter by liquidity, rank, and cap."""
     eligible = [
         s for s in all_symbols
@@ -175,7 +178,7 @@ def fetch_klines_range(
     interval: str,
     start_ms: int,
     end_ms: int,
-) -> list[list]:
+) -> list:
     """Fetch all klines between start_ms and end_ms (paginated)."""
     all_rows = []
     cursor = start_ms
@@ -199,7 +202,7 @@ def fetch_klines_range(
         if len(rows) < MAX_LIMIT:
             break
 
-        cursor = last_open + tf_ms  # next candle after last one
+        cursor = last_open + tf_ms
 
     return all_rows
 
@@ -207,7 +210,7 @@ def fetch_klines_range(
 # ============================================================
 # Quality validation
 # ============================================================
-def validate_klines(rows: list[list], interval: str) -> dict:
+def validate_klines(rows: list, interval: str) -> dict:
     """Return validation summary. Never modifies data."""
     result = {
         "count": len(rows),
@@ -234,7 +237,7 @@ def validate_klines(rows: list[list], interval: str) -> dict:
             o, h, l, c = float(r[1]), float(r[2]), float(r[3]), float(r[4])
             if not (l <= o <= h and l <= c <= h and l <= h):
                 result["invalid_ohlc"] += 1
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, IndexError):
             result["invalid_ohlc"] += 1
 
         if prev_open is not None:
@@ -252,7 +255,7 @@ def validate_klines(rows: list[list], interval: str) -> dict:
 # ============================================================
 # Storage (CSV for now; Parquet if pyarrow available)
 # ============================================================
-def save_klines(rows: list[list], symbol: str, interval: str) -> Path:
+def save_klines(rows: list, symbol: str, interval: str) -> Path:
     """Save klines to disk. CSV if no pyarrow; Parquet otherwise."""
     filename = f"{symbol}_{interval}"
     csv_path = DATA_DIR / f"{filename}.csv"
@@ -269,8 +272,7 @@ def save_klines(rows: list[list], symbol: str, interval: str) -> Path:
 
     # Try Parquet if pyarrow exists
     try:
-        import pyarrow as pa            # noqa
-        import pyarrow.parquet as pq    # noqa
+        import pyarrow  # noqa
         import pandas as pd
 
         df = pd.DataFrame(rows, columns=[
@@ -294,7 +296,10 @@ def save_klines(rows: list[list], symbol: str, interval: str) -> Path:
 # ============================================================
 def load_checkpoint() -> dict:
     if CHECKPOINT_FILE.exists():
-        return json.loads(CHECKPOINT_FILE.read_text())
+        try:
+            return json.loads(CHECKPOINT_FILE.read_text())
+        except json.JSONDecodeError:
+            return {"completed": [], "failed": []}
     return {"completed": [], "failed": []}
 
 
@@ -310,7 +315,7 @@ def task_key(symbol: str, interval: str) -> str:
 # ============================================================
 # Main orchestration
 # ============================================================
-def run(symbols: list[str], timeframes: list[str], years: int = 5):
+def run(symbols: list, timeframes: list, years: int = 5):
     client = BinanceClient()
     checkpoint = load_checkpoint()
     completed = set(checkpoint.get("completed", []))
@@ -373,7 +378,6 @@ def run(symbols: list[str], timeframes: list[str], years: int = 5):
             checkpoint["failed"] = sorted(failed)
             save_checkpoint(checkpoint)
 
-    # Summary CSV
     if summaries:
         with open(SUMMARY_FILE, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(summaries[0].keys()))
