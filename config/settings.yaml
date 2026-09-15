@@ -136,31 +136,95 @@ market_discovery:
 # ------------------------------------------------------------
 # Asset classes (for future expansion)
 # ------------------------------------------------------------
+# ------------------------------------------------------------
+# ASSET CLASSES
+# ------------------------------------------------------------
+# Only crypto is enabled now. The rest are documented but
+# disabled until their data pipelines are built.
+# ------------------------------------------------------------
+
 markets:
+
+  # ==========================================================
+  # CRYPTO — ENABLED
+  # ==========================================================
   crypto:
     enabled: true
     discover_additional_symbols: true
+    data_source: "binance_public"     # free, no API key
+    note: "Primary asset class. Binance public data."
 
+  # ==========================================================
+  # FOREX — PLANNED
+  # ==========================================================
   forex:
-    enabled: false
-    note: "Enable after crypto pipeline proven."
+    enabled: false                    # ← flip to true when ready
+    note: "Enable after crypto pipeline is proven."
+    planned_providers:
+      - dukascopy     # historical (bulk download, free)
+      - twelvedata    # live (800 calls/day free tier)
+      - yahoo         # backup
+    planned_symbols:
+      # Majors
+      - EURUSD
+      - GBPUSD
+      - USDJPY
+      - USDCHF
+      - AUDUSD
+      - USDCAD
+      - NZDUSD
+      # Crosses
+      - EURGBP
+      - EURJPY
+      - GBPJPY
+      # Commodities (FX-style)
+      - XAUUSD    # gold
+      - XAGUSD    # silver
+    note_sessions: |
+      Forex sessions (UTC):
+        Tokyo:   00:00 – 09:00
+        London:  07:00 – 16:00
+        New York: 12:00 – 21:00
+        London/NY overlap (12:00–16:00): best liquidity
 
+  # ==========================================================
+  # STOCKS — PLANNED
+  # ==========================================================
   stocks:
     enabled: false
-    note: "Requires paid data provider."
+    note: "Requires reliable data provider (Polygon/Alpaca)."
 
+  # ==========================================================
+  # INDICES — PLANNED
+  # ==========================================================
   indices:
     enabled: false
+    note: "Requires reliable data provider."
 
+  # ==========================================================
+  # COMMODITIES — PLANNED
+  # ==========================================================
   commodities:
     enabled: false
+    note: "Requires reliable data provider."
 
+  # ==========================================================
+  # FUTURES — LATER
+  # ==========================================================
   futures:
     enabled: false
+    note: "CME data is expensive. Deferred."
 
+  # ==========================================================
+  # ETFs — LATER
+  # ==========================================================
   etfs:
     enabled: false
+    note: "Requires reliable data provider."
 
+  # ==========================================================
+  # OTC — NEVER (by design)
+  # ==========================================================
   otc:
     enabled: false
     note: "Never auto-trust OTC. Requires verified exact-instrument feed."
