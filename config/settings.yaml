@@ -1,9 +1,6 @@
 # ============================================================
 # LEGEND TRADING AI — SETTINGS
 # ============================================================
-# Start small: crypto only. Expand one asset class at a time
-# AFTER the pipeline is proven end-to-end.
-# ============================================================
 
 app:
   name: "Legend Trading AI"
@@ -16,9 +13,6 @@ app:
 reporting:
   interval_hours: 5
   daily_summary_hour: 23
-  send_weak_signals: true
-  send_no_signal_message: true
-  top_candidates_in_no_signal: 5   # only show top N in ⚪ message
 
 # ------------------------------------------------------------
 # SIGNAL THRESHOLDS
@@ -43,93 +37,130 @@ risk:
 model:
   champion_version: "v0.1"
   registry_path: "models/registry.json"
-  mode: "paper"                    # paper | live
+  mode: "paper"
 
-# ------------------------------------------------------------
-# MARKET UNIVERSE
-# ------------------------------------------------------------
-# Start with crypto only. Enable others one at a time.
+# ============================================================
+# DATA ENGINE
+# ============================================================
+# Everything the downloader uses. Change values here to
+# change behavior. Never hard-code in the notebook.
 # ============================================================
 
-markets:
+data:
+  # Target history (may be less if provider lacks it)
+  target_historical_years: 5
 
+  # Timeframes to download (full multi-timeframe architecture)
+  timeframes:
+    - "5m"
+    - "15m"
+    - "1h"
+    - "4h"
+    - "1d"
+
+  # Where to save locally (Colab) and in Drive
+  output_dir: "data/raw"
+  checkpoint_file: "data/download_checkpoint.json"
+  summary_file: "data/download_summary.csv"
+
+  # Rate limit behavior — never assumed, always measured
+  rate_limit:
+    min_delay_between_requests: 0.25   # seconds; conservative floor
+    max_retries: 5
+    backoff_base_seconds: 2            # exponential backoff on failure
+    respect_retry_after: true          # honor HTTP 429 Retry-After
+
+  # Data quality rules
+  quality:
+    max_gap_hours:
+      "5m": 2
+      "15m": 4
+      "1h": 6
+      "4h": 12
+      "1d": 72
+    min_bars_required:
+      "5m": 50000
+      "15m": 20000
+      "1h": 10000
+      "4h": 3000
+      "1d": 500
+    reject_if_duplicate_rows: true
+    reject_if_ohlc_invalid: true
+
+# ============================================================
+# MARKET UNIVERSE
+# ============================================================
+# Discovery-driven. The engine finds eligible markets.
+# ============================================================
+
+market_discovery:
+  enabled: true
+
+  # Base list to check (engine may add from Binance discovery)
+  seed_symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - XRP/USDT
+    - ADA/USDT
+    - DOGE/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - LTC/USDT
+    - ATOM/USDT
+    - NEAR/USDT
+    - ARB/USDT
+    - OP/USDT
+    - MATIC/USDT
+    - INJ/USDT
+    - SUI/USDT
+    - APT/USDT
+    - FIL/USDT
+
+  # Requirements a symbol must meet to be eligible
+  filters:
+    require_spot_market: true
+    require_active_status: true
+    min_quote_volume_24h_usdt: 5_000_000      # $5M daily minimum
+    min_history_years: 1                        # at least 1 year
+    require_usdt_quote: true                    # we work in USDT pairs
+    exclude_stablecoins: true
+    exclude_wrapped_tokens: true
+
+  # Selection
+  maximum_symbols: 30          # soft ceiling, not a hard limit
+  rank_by: "quote_volume_24h"  # or "market_cap_approx"
+
+# ------------------------------------------------------------
+# Asset classes (for future expansion)
+# ------------------------------------------------------------
+markets:
   crypto:
     enabled: true
-    discover_additional_symbols: false   # keep fixed list at first
-    symbols:
-      - BTC/USDT
-      - ETH/USDT
-      - SOL/USDT
-      - BNB/USDT
-      - XRP/USDT
-      - ADA/USDT
-      - DOGE/USDT
-      - AVAX/USDT
-      - LINK/USDT
-      - DOT/USDT
-      - LTC/USDT
-      - MATIC/USDT
-      - ATOM/USDT
-      - NEAR/USDT
-      - ARB/USDT
-      - OP/USDT
+    discover_additional_symbols: true
 
   forex:
     enabled: false
-    note: "Enable after crypto pipeline is proven."
-    discover_additional_symbols: false
-    symbols: []
+    note: "Enable after crypto pipeline proven."
 
   stocks:
     enabled: false
-    note: "Requires paid data provider (Polygon/Alpaca)."
-    discover_additional_symbols: false
-    symbols: []
+    note: "Requires paid data provider."
 
   indices:
     enabled: false
-    note: "Requires paid data provider."
-    discover_additional_symbols: false
-    symbols: []
 
   commodities:
     enabled: false
-    note: "Requires paid data provider."
-    discover_additional_symbols: false
-    symbols: []
 
   futures:
     enabled: false
-    note: "CME data is expensive. Defer."
-    discover_additional_symbols: false
-    symbols: []
 
   etfs:
     enabled: false
-    note: "Requires paid data provider."
-    discover_additional_symbols: false
-    symbols: []
 
   otc:
     enabled: false
-    note: "Never auto-trust OTC. Only with verified exact-instrument feed."
-    require_verified_feed: true
-    require_exact_instrument_data: true
-    require_historical_data: true
-    require_live_data: true
-
-# ------------------------------------------------------------
-# DATA DISCOVERY RULES
-# ------------------------------------------------------------
-discovery:
-  enabled: true
-  discover_new_symbols: false       # flip to true once base works
-  require_historical_data: true
-  require_live_data: true
-  target_historical_years: 5
-  reject_bad_data: true
-  reject_missing_data: true
-  reject_duplicate_data: true
-  require_liquidity_check: true
-  require_spread_check: true
-  require_market_eligibility: true
+    note: "Never auto-trust OTC. Requires verified exact-instrument feed."
