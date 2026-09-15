@@ -1,0 +1,30 @@
+{
+  "completed": [
+    "BNBUSDT_15m",
+    "BNBUSDT_1d",
+    "BNBUSDT_1h",
+    "BNBUSDT_4h",
+    "BNBUSDT_5m",
+    "BTCUSDT_15m",
+    "BTCUSDT_1d",
+    "BTCUSDT_1h",
+    "BTCUSDT_4h",
+    "BTCUSDT_5m",
+    "ETHUSDT_15m",
+    "ETHUSDT_1d",
+    "ETHUSDT_1h",
+    "ETHUSDT_4h",
+    "ETHUSDT_5m",
+    "SOLUSDT_15m",
+    "SOLUSDT_1d",
+    "SOLUSDT_1h",
+    "SOLUSDT_4h",
+    "SOLUSDT_5m",
+    "XRPUSDT_15m",
+    "XRPUSDT_1d",
+    "XRPUSDT_1h",
+    "XRPUSDT_4h",
+    "XRPUSDT_5m"
+  ],
+  "failed": []
+}
