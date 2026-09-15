@@ -73,10 +73,13 @@ class BinanceClient:
     """Thin wrapper around Binance public endpoints with retry logic."""
 
     def __init__(self, min_delay: float = 0.25, max_retries: int = 5):
-        self.session = requests.Session()
-        self.min_delay = min_delay
-        self.max_retries = max_retries
-        self._last_call = 0.0
+    self.session = requests.Session()
+    # Critical fix: WARP + keep-alive breaks Python requests.
+    # Force fresh connection per request.
+    self.session.headers.update({"Connection": "close"})
+    self.min_delay = min_delay
+    self.max_retries = max_retries
+    self._last_call = 0.0
 
     def _wait(self):
         elapsed = time.time() - self._last_call
