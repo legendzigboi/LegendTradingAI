@@ -4,18 +4,23 @@ Legend Trading AI — Data Engine
 Downloads historical OHLCV data from Binance public API.
 Pure Python + requests (no pandas / pyarrow required).
 
+Optimized for slow connections (e.g., WARP through Nigerian ISPs):
+  - First request allowed long timeout (slow TLS handshake)
+  - Subsequent requests use shorter timeout (connection reused)
+  - Keep-alive enabled for speed
+  - Retry with exponential backoff
+
 Features:
   - Symbol discovery from Binance exchangeInfo
   - Liquidity filter (24h quote volume)
   - Rate-limit-aware downloader
-  - Retry with exponential backoff
   - Checkpointing (resume after crash)
   - Quality validation (gaps, OHLC sanity, duplicates)
   - CSV output (auto-switches to Parquet if pyarrow present)
   - Summary report
 
 Usage:
-    python -m src.data_engine                     # default: seed symbols, all timeframes in config
+    python -m src.data_engine                     # default: seed symbols, all timeframes
     python -m src.data_engine --test              # quick test: 3 symbols, 1h only
     python -m src.data_engine --symbols BTCUSDT ETHUSDT --timeframes 1h
     python -m src.data_engine --discover          # auto-discover eligible symbols
@@ -49,7 +54,7 @@ TICKER_24H = "/api/v3/ticker/24hr"
 # Binance max candles per request
 MAX_LIMIT = 1000
 
-# Timeframe -> duration in milliseconds (for pagination)
+# Timeframe -> duration in milliseconds
 TF_MS = {
     "5m":  5 * 60 * 1000,
     "15m": 15 * 60 * 1000,
@@ -57,6 +62,10 @@ TF_MS = {
     "4h":  4 * 60 * 60 * 1000,
     "1d":  24 * 60 * 60 * 1000,
 }
+
+# Timeouts — tuned for slow WARP connections
+FIRST_REQUEST_TIMEOUT = 120    # first connection through WARP is slow
+NORMAL_REQUEST_TIMEOUT = 30    # reused connections are fast
 
 # Where things live
 DATA_DIR = ROOT / "data" / "raw"
@@ -70,16 +79,23 @@ SUMMARY_FILE    = ROOT / "data" / "download_summary.csv"
 # HTTP client with retry + backoff
 # ============================================================
 class BinanceClient:
-    """Thin wrapper around Binance public endpoints with retry logic."""
+    """
+    Thin wrapper around Binance public endpoints.
 
-    def __init__(self, min_delay: float = 0.25, max_retries: int = 5):
+    Key behavior:
+      - First request: long timeout (TLS + WARP slow start)
+      - Later requests: short timeout (connection reused)
+      - Automatic retry with exponential backoff
+    """
+
+    def __init__(self, min_delay: float = 0.2, max_retries: int = 5):
         self.session = requests.Session()
-        # WARP + keep-alive breaks Python requests.
-        # Force a fresh connection per request.
-        self.session.headers.update({"Connection": "close"})
+        # Keep-alive enabled (default) — first req slow, rest fast.
+        # Do NOT set Connection: close — that made every req slow.
         self.min_delay = min_delay
         self.max_retries = max_retries
         self._last_call = 0.0
+        self._first_request_done = False
 
     def _wait(self):
         elapsed = time.time() - self._last_call
@@ -87,12 +103,29 @@ class BinanceClient:
             time.sleep(self.min_delay - elapsed)
         self._last_call = time.time()
 
+    def _timeout_for_next_request(self) -> int:
+        """First request is slow; subsequent ones are fast."""
+        return NORMAL_REQUEST_TIMEOUT if self._first_request_done else FIRST_REQUEST_TIMEOUT
+
     def get(self, path: str, params: Optional[dict] = None):
         url = BINANCE_BASE + path
         for attempt in range(1, self.max_retries + 1):
             self._wait()
+            timeout = self._timeout_for_next_request()
             try:
-                r = self.session.get(url, params=params, timeout=20)
+                t0 = time.time()
+                r = self.session.get(url, params=params, timeout=timeout)
+                elapsed = time.time() - t0
+
+                # Mark first request done after any successful response
+                self._first_request_done = True
+
+                # Log slow requests so we can see WARP behavior
+                if not self._first_request_done or elapsed > 5:
+                    # Only print for the very first request (informative)
+                    if not hasattr(self, "_printed_first") and elapsed > 3:
+                        self._printed_first = True
+                        print(f"    (first request took {elapsed:.1f}s — WARP warm-up)")
 
                 if r.status_code == 200:
                     return r.json()
@@ -104,7 +137,7 @@ class BinanceClient:
                     continue
 
                 if r.status_code >= 500:
-                    backoff = 2 ** attempt
+                    backoff = min(2 ** attempt, 30)
                     print(f"    ⚠ {r.status_code} server error, retrying in {backoff}s...")
                     time.sleep(backoff)
                     continue
@@ -113,8 +146,11 @@ class BinanceClient:
                 return []
 
             except requests.RequestException as e:
-                backoff = 2 ** attempt
-                print(f"    ⚠ network error ({e}), retry {attempt}/{self.max_retries} in {backoff}s")
+                # If first request failed, we'll try again with the same long timeout
+                backoff = min(2 ** attempt, 30)
+                err_type = type(e).__name__
+                print(f"    ⚠ network error [{err_type}] attempt {attempt}/{self.max_retries}, "
+                      f"waiting {backoff}s...")
                 time.sleep(backoff)
 
         print(f"    ❌ Failed after {self.max_retries} retries: {url}")
@@ -183,8 +219,10 @@ def fetch_klines_range(
     all_rows = []
     cursor = start_ms
     tf_ms = TF_MS[interval]
+    batch = 0
 
     while cursor < end_ms:
+        batch += 1
         rows = client.get(KLINES, {
             "symbol": symbol,
             "interval": interval,
@@ -197,6 +235,10 @@ def fetch_klines_range(
             break
 
         all_rows.extend(rows)
+
+        # Progress indicator (every 10 batches)
+        if batch % 10 == 0:
+            print(f"    ... {len(all_rows)} candles fetched", flush=True)
 
         last_open = rows[-1][0]
         if len(rows) < MAX_LIMIT:
@@ -260,7 +302,6 @@ def save_klines(rows: list, symbol: str, interval: str) -> Path:
     filename = f"{symbol}_{interval}"
     csv_path = DATA_DIR / f"{filename}.csv"
 
-    # Simple, portable CSV
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["open_time", "open", "high", "low", "close", "volume"])
@@ -270,7 +311,6 @@ def save_klines(rows: list, symbol: str, interval: str) -> Path:
                 r[1], r[2], r[3], r[4], r[5],
             ])
 
-    # Try Parquet if pyarrow exists
     try:
         import pyarrow  # noqa
         import pandas as pd
@@ -344,13 +384,17 @@ def run(symbols: list, timeframes: list, years: int = 5):
                 print(f"[{done}/{total}] SKIP {key} (already downloaded)")
                 continue
 
-            print(f"[{done}/{total}] {key} ...")
+            print(f"[{done}/{total}] {key} ...", flush=True)
             t0 = time.time()
 
             rows = fetch_klines_range(client, symbol, tf, start_ms, end_ms)
             if not rows:
                 print(f"    ❌ no data")
                 failed.add(key)
+                save_checkpoint({
+                    "completed": sorted(completed),
+                    "failed": sorted(failed),
+                })
                 continue
 
             quality = validate_klines(rows, tf)
@@ -374,9 +418,10 @@ def run(symbols: list, timeframes: list, years: int = 5):
             })
 
             completed.add(key)
-            checkpoint["completed"] = sorted(completed)
-            checkpoint["failed"] = sorted(failed)
-            save_checkpoint(checkpoint)
+            save_checkpoint({
+                "completed": sorted(completed),
+                "failed": sorted(failed),
+            })
 
     if summaries:
         with open(SUMMARY_FILE, "w", newline="") as f:
@@ -412,7 +457,6 @@ def main():
 
     years = args.years or data_cfg.get("target_historical_years", 5)
 
-    # Timeframes
     if args.timeframes:
         timeframes = args.timeframes
     elif args.test:
@@ -420,7 +464,6 @@ def main():
     else:
         timeframes = data_cfg.get("timeframes", ["1h"])
 
-    # Symbols
     client = BinanceClient()
 
     if args.symbols:
