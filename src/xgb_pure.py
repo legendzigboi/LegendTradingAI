@@ -10,7 +10,7 @@ XGBoost JSON structure (per tree):
   - split_indices[i]   : feature index used at node i
   - split_conditions[i]: threshold value at node i
   - default_left[i]    : 1 if missing goes left
-  - base_weights[i]    : leaf value (only valid where left_children[i] == -1)
+  - split_conditions[i]: also used at leaf nodes as the leaf value
 
 For binary:logistic, final output = sigmoid(sum_of_leaf_values + base_score_logit)
 """
@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 class XGBPure:
-    def __init__(self, model_path: str | Path):
+    def __init__(self, model_path):
         with open(model_path, "r") as f:
             model = json.load(f)
 
@@ -30,9 +30,14 @@ class XGBPure:
 
         self.trees = gb["trees"]
         self.feature_names = learner["feature_names"]
-        self.base_score = float(learner["learner_model_param"]["base_score"])
 
-        # binary:logistic => sigmoid at the end
+        # ---- base_score can be: "0.5", "4.88e-1", or "[4.88e-1]" (XGBoost 2.x) ----
+        _bs = learner["learner_model_param"]["base_score"]
+        if isinstance(_bs, str):
+            _bs = _bs.strip().strip("[]")
+        self.base_score = float(_bs)
+
+        # objective
         self.objective = learner["objective"]["name"]
         if self.objective != "binary:logistic":
             raise ValueError(f"Unsupported objective: {self.objective}")
@@ -43,7 +48,7 @@ class XGBPure:
         b = min(max(self.base_score, eps), 1.0 - eps)
         self.base_margin = math.log(b / (1.0 - b))
 
-    def _traverse_tree(self, tree: dict, features: list[float]) -> float:
+    def _traverse_tree(self, tree, features):
         """Return the leaf value for one tree."""
         left = tree["left_children"]
         right = tree["right_children"]
@@ -57,18 +62,20 @@ class XGBPure:
             f_val = features[f_idx]
             threshold = split_cond[node]
 
-            if f_val is None or (isinstance(f_val, float) and math.isnan(f_val)):
+            if f_val is None:
+                node = left[node] if default_left[node] else right[node]
+            elif isinstance(f_val, float) and math.isnan(f_val):
                 node = left[node] if default_left[node] else right[node]
             elif f_val < threshold:
                 node = left[node]
             else:
                 node = right[node]
 
-        return split_cond[node]  # leaf value (base_weights are also fine)
+        return split_cond[node]  # leaf value
 
-    def predict_proba(self, X: list[list[float]]) -> list[float]:
+    def predict_proba(self, X):
         """
-        X: list of feature rows (each row is a list of floats, same length as feature_names).
+        X: list of feature rows (each row is a list of floats).
         Returns: list of P(class=1) probabilities.
         """
         probs = []
@@ -80,7 +87,7 @@ class XGBPure:
             probs.append(p)
         return probs
 
-    def predict(self, X: list[list[float]], threshold: float = 0.5) -> list[int]:
+    def predict(self, X, threshold=0.5):
         return [1 if p >= threshold else 0 for p in self.predict_proba(X)]
 
 
@@ -95,10 +102,10 @@ if __name__ == "__main__":
     print(f"✅ Loaded: {sys.argv[1]}")
     print(f"   Trees:        {len(m.trees)}")
     print(f"   Features:     {len(m.feature_names)}")
-    print(f"   Base margin:  {m.base_margin:.4f}")
+    print(f"   Base score:   {m.base_score:.6f}")
+    print(f"   Base margin:  {m.base_margin:.6f}")
 
-    # Dummy prediction (all zeros)
     n_feat = len(m.feature_names)
     X = [[0.0] * n_feat]
     p = m.predict_proba(X)[0]
-    print(f"   Test pred (all zero features): {p:.4f}")
+    print(f"   Test pred (all zeros): {p:.6f}")
