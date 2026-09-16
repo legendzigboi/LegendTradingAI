@@ -1,0 +1,4 @@
+symbol,H,dir,start,end,return_%,max_dd_%,sharpe,trades,win_rate
+XRPUSDT,10,long,10000,11636.51,16.37,-2.74,2.67,1042,0.567
+SOLUSDT,10,long,10000,10582.36,5.82,-1.41,2.49,514,0.543
+XRPUSDT,20,long,10000,12169.61,21.7,-5.35,2.39,1048,0.585
