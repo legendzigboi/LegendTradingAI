@@ -1,46 +1,82 @@
 {
   "date": "2026-09-16",
-  "session": "Phase 3 \u2014 Model Training",
-  "final_backtest": [
+  "session": "Phase 3 — Model Development",
+  "conclusion": "Three promising candidate strategies identified through walk-forward testing. Parameters locked. Ready for prospective paper-trading validation.",
+  "candidates": [
     {
       "symbol": "XRPUSDT",
-      "H": 10,
-      "dir": "long",
-      "return_%": 16.37,
-      "max_dd_%": -2.74,
-      "sharpe": 2.67,
-      "trades": 1042,
-      "win_rate": 0.567
+      "horizon": 10,
+      "direction": "long",
+      "confidence_threshold": 0.62,
+      "mean_sharpe": 2.58,
+      "mean_net_pct_per_trade": 0.7711,
+      "positive_splits": "5/6",
+      "total_splits": 6,
+      "total_trades": 1042,
+      "win_rate": 0.567,
+      "position_sized_return_pct": 16.37,
+      "position_sized_max_dd_pct": -2.74,
+      "position_sized_sharpe_daily": 2.67
     },
     {
       "symbol": "SOLUSDT",
-      "H": 10,
-      "dir": "long",
-      "return_%": 5.82,
-      "max_dd_%": -1.41,
-      "sharpe": 2.49,
-      "trades": 514,
-      "win_rate": 0.543
+      "horizon": 10,
+      "direction": "long",
+      "confidence_threshold": 0.62,
+      "mean_sharpe": 1.68,
+      "mean_net_pct_per_trade": 0.6783,
+      "positive_splits": "5/6",
+      "total_splits": 6,
+      "total_trades": 514,
+      "win_rate": 0.543,
+      "position_sized_return_pct": 5.82,
+      "position_sized_max_dd_pct": -1.41,
+      "position_sized_sharpe_daily": 2.49
     },
     {
       "symbol": "XRPUSDT",
-      "H": 20,
-      "dir": "long",
-      "return_%": 21.7,
-      "max_dd_%": -5.35,
-      "sharpe": 2.39,
-      "trades": 1048,
-      "win_rate": 0.585
+      "horizon": 20,
+      "direction": "long",
+      "confidence_threshold": 0.62,
+      "mean_sharpe": 1.51,
+      "mean_net_pct_per_trade": 0.4546,
+      "positive_splits": "5/6",
+      "total_splits": 6,
+      "total_trades": 1048,
+      "win_rate": 0.585,
+      "position_sized_return_pct": 21.70,
+      "position_sized_max_dd_pct": -5.35,
+      "position_sized_sharpe_daily": 2.39
     }
   ],
-  "avg_return_%": 14.63,
-  "avg_sharpe": 2.52,
-  "avg_drawdown_%": -3.17,
-  "conclusion": "Three verified edges ready for paper trading",
-  "next_session_priorities": [
-    "Expand test to more symbols",
-    "Build paper trading loop",
-    "Add Telegram notifications",
-    "Deploy to persistent infrastructure"
+  "summary_metrics": {
+    "avg_position_sized_return_pct": 14.63,
+    "avg_sharpe_daily": 2.52,
+    "avg_max_dd_pct": -3.17,
+    "total_trades_across_candidates": 2604
+  },
+  "selection_bias_warning": "60 candidates tested, top 3 selected by Sharpe. Historical results may overstate forward performance due to multiple hypothesis testing.",
+  "locking_rules": {
+    "model_files_frozen": true,
+    "feature_set_frozen": true,
+    "confidence_threshold_frozen": true,
+    "horizon_frozen": true,
+    "position_sizing_frozen": true,
+    "no_further_tuning_on_this_data": "Any future model changes must be validated on new, unseen data only."
+  },
+  "locked": true,
+  "next_phase": "Prospective paper trading on live data. Compare against backtest expectations.",
+  "benchmarks_to_compare": [
+    "Buy-and-hold XRP (same period)",
+    "Buy-and-hold SOL (same period)",
+    "Buy-and-hold BTC (same period)"
+  ],
+  "next_steps": [
+    "Build live signal generator using locked parameters",
+    "Deploy paper trader in 24/7 loop",
+    "Log every signal + outcome to SQLite",
+    "Send Telegram notifications for each signal",
+    "Run prospectively for weeks; do not tune during this period",
+    "After sufficient trades, evaluate against benchmarks"
   ]
-}
+    }
