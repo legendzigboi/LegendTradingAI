@@ -1,0 +1,31 @@
+{
+  "version": "v0.1",
+  "locked_at": "2026-09-16",
+  "model_family": "XGBoost",
+  "features": [
+    "return_1", "return_5", "return_20",
+    "range", "body", "upper_wick", "lower_wick",
+    "sma_ratio_20", "sma_ratio_50", "sma_ratio_200",
+    "ema_ratio_9_21", "ema_ratio_21_50",
+    "rsi_14", "rsi_7",
+    "macd_line", "macd_signal", "macd_hist",
+    "roc_10",
+    "atr_14", "std_20",
+    "bb_position", "bb_width",
+    "volume_ratio_20", "volume_ratio_50", "obv_slope",
+    "hour_sin", "hour_cos",
+    "dow_sin", "dow_cos", "is_weekend"
+  ],
+  "horizons_locked": [10, 20],
+  "confidence_high": 0.62,
+  "confidence_low": 0.38,
+  "total_cost_per_round_trip": 0.0009,
+  "position_sizing": "fixed_fractional_2_percent",
+  "candidates": [
+    {"symbol": "XRPUSDT", "horizon": 10, "direction": "long"},
+    {"symbol": "SOLUSDT", "horizon": 10, "direction": "long"},
+    {"symbol": "XRPUSDT", "horizon": 20, "direction": "long"}
+  ],
+  "frozen": true,
+  "no_tuning_rule": "These parameters must not be changed based on the same 6 walk-forward splits. Any change must be validated on new data only."
+    }
