@@ -35,3 +35,9 @@ models/**/*.onnx
 # OS
 .DS_Store
 Thumbs.db
+
+# Models — keep on Kaggle / HF, not in Git
+models/v0.2/
+models/locked_v2/
+models/**/*.json
+!models/locked/*.json
