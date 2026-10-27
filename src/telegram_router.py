@@ -7,9 +7,10 @@ from pathlib import Path
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 from src.config import env
-from src.signal_db import stats_last_n_days
-from src.live_features import get_latest_features
+from src.signal_db import init_db, log_signal, get_pending_trades
+from src.live_features import get_latest_features, fetch_klines
 from src.xgb_pure import XGBPure
+from src.trade_planner import build_trade_plan
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,25 +29,38 @@ def restricted(func):
         return await func(update, context, *args, **kwargs)
     return wrapped
 
-# --- SETUP COMMAND MENU ---
 async def post_init(application: Application) -> None:
-    """Sets the command menu that appears on the left of the Telegram chat bar."""
     commands = [
         BotCommand("start", "Start the bot"),
         BotCommand("builder", "Force scan: /builder BTCUSDT 1h"),
-        BotCommand("signals", "Low-risk aligned setups"),
+        BotCommand("trades", "View open PENDING trades"),
         BotCommand("status", "Check bot health"),
-        BotCommand("results", "View PnL & win rate"),
     ]
     await application.bot.set_my_commands(commands)
 
 @restricted
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 LEGEND TRADING AI v0.3\n\nUse the Menu button on the left or type /builder to scan a market.")
+    init_db()
+    await update.message.reply_text("🤖 LEGEND TRADING AI v0.3\nDatabase ready.")
 
 @restricted
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🟢 Status: ONLINE\nEngine: READY")
+
+@restricted
+async def trades_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    trades = get_pending_trades()
+    if not trades:
+        await update.message.reply_text("📭 No open PENDING trades right now.")
+        return
+        
+    msg = "📋 OPEN TRADES (PENDING)\n━━━━━━━━━━━━━━━━━━━━\n"
+    for t in trades:
+        msg += f"• [{t['symbol']}] {t['direction']} @ {t['entry_price']:.5f}\n"
+        msg += f"  SL: {t['stop_loss']:.5f} | TP1: {t['tp1']:.5f}\n"
+        msg += f"  ID: {t['id']} | TF: {t['timeframe']}\n\n"
+        
+    await update.message.reply_text(msg)
 
 @restricted
 async def builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,8 +76,10 @@ async def builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         feats, ts_ms = get_latest_features(symbol, timeframe)
+        candles = fetch_klines(symbol, timeframe, limit=2)
+        entry_price = float(candles[-2][4])
+        atr_14 = feats[18] 
         
-        # Defaulting to H=10 long model for the test
         model_name = f"v0.2_{symbol}_h10_long.json"
         model_path = MODEL_DIR / model_name
         
@@ -77,29 +93,33 @@ async def builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         direction = "LONG" if proba > 0.5 else "SHORT"
         confidence = proba if proba > 0.5 else (1 - proba)
         
+        plan = build_trade_plan(entry_price, direction, atr_14)
+        
+        sig_id = log_signal(
+            symbol=symbol, timeframe=timeframe, direction=direction,
+            model_version=model_name, confidence=float(confidence),
+            entry_price=plan["entry"], stop_loss=plan["stop_loss"],
+            tp1=plan["tp1"], tp2=plan["tp2"], tp3=plan["tp3"]
+        )
+        
         msg = (
-            f"🎯 LEGEND SIGNAL: {symbol}\n"
+            f"🎯 LEGEND SIGNAL: {symbol} [{timeframe}]\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Direction:  {direction}\n"
             f"Confidence: {confidence*100:.1f}%\n"
-            f"Timeframe:  {timeframe}\n"
-            f"Model:      {model_name}\n"
+            f"Model:      v0.2 (H=10)\n\n"
+            f"📊 TRADE PLAN\n"
+            f"Entry:      ${plan['entry']:.5f}\n"
+            f"Stop Loss:  ${plan['stop_loss']:.5f}\n\n"
+            f"TP1:        ${plan['tp1']:.5f}\n"
+            f"TP2:        ${plan['tp2']:.5f}\n"
+            f"TP3:        ${plan['tp3']:.5f}\n\n"
+            f"✅ Saved to Database (ID: {sig_id})"
         )
         await update.message.reply_text(msg)
 
     except Exception as e:
         await update.message.reply_text(f"❌ Error during scan: {str(e)}")
-
-@restricted
-async def results_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = stats_last_n_days(days=1)
-    if not stats:
-        await update.message.reply_text("📊 No trades settled today.")
-        return
-    msg = "📊 TODAY'S RESULTS\n━━━━━━━━━━━━━━━━━━━━\n"
-    for row in stats:
-        msg += f"• {row['symbol']} {row['direction'].upper()}: {row['wins']}/{row['trades']} wins\n"
-    await update.message.reply_text(msg)
 
 def run_router():
     token = env.get("TELEGRAM_BOT_TOKEN")
@@ -107,13 +127,11 @@ def run_router():
         logger.error("No Telegram token found in .env")
         return
         
-    # Note the post_init=post_init here. This pushes the menu to Telegram.
     app = Application.builder().token(token).post_init(post_init).build()
-    
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("trades", trades_command))
     app.add_handler(CommandHandler("builder", builder_command))
-    app.add_handler(CommandHandler("results", results_command))
     
     logger.info("🚀 Telegram Router is running...")
     app.run_polling()
