@@ -13,3 +13,4 @@ requests==2.34.2
 typing_extensions==4.16.0
 tzlocal==5.4.5
 urllib3==2.8.0
+Flask
