@@ -16,18 +16,24 @@ from src.risk_engine import check_circuit_breaker, set_pause
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- PILLAR 1: SECURITY ---
-# Added `or 0` to prevent int("") crash if env variable is empty
 AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
+
+def format_price(price):
+    """Dynamically formats price based on the asset (BTC vs XRP)."""
+    if price >= 1000:
+        return f"{price:,.2f}" # BTC, ETH
+    elif price >= 1:
+        return f"{price:.4f}"  # XRP, ADA
+    else:
+        return f"{price:.6f}"  # SHIB, PEPE
 
 def restricted(func):
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id if update.effective_user else None
         if user_id not in AUTHORIZED_USER_IDS:
-            if update.message: 
-                await update.message.reply_text("⛔ Unauthorized access.")
+            if update.message: await update.message.reply_text("⛔ Unauthorized access.")
             return
         return await func(update, context, *args, **kwargs)
     return wrapped
@@ -65,8 +71,8 @@ async def trades_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     msg = "📋 OPEN TRADES (PENDING)\n━━━━━━━━━━━━━━━━━━━━\n"
     for t in trades:
-        msg += f"• [{t['symbol']}] {t['direction']} @ {t['entry_price']:.5f}\n"
-        msg += f"  SL: {t['stop_loss']:.5f} | TP1: {t['tp1']:.5f}\n"
+        msg += f"• [{t['symbol']}] {t['direction']} @ {format_price(t['entry_price'])}\n"
+        msg += f"  SL: {format_price(t['stop_loss'])} | TP1: {format_price(t['tp1'])}\n"
         msg += f"  ID: {t['id']} | TF: {t['timeframe']}\n\n"
     await update.message.reply_text(msg)
 
@@ -88,17 +94,17 @@ async def builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🔍 Scanning {symbol} on {timeframe}...\n{risk_msg}")
 
     try:
-        feats, ts_ms = get_latest_features(symbol, timeframe)
-        candles = fetch_klines(symbol, timeframe, limit=2)
-        entry_price = float(candles[-2][4])
-        atr_14 = feats[18] 
-        
-        model_name = f"v0.2_{symbol}_h10_long.json"
+        model_name = f"v0.2_{symbol}_{timeframe}_h10_long.json"
         model_path = MODEL_DIR / model_name
         
         if not model_path.exists():
             await update.message.reply_text(f"❌ Error: Model `{model_name}` not found.")
             return
+
+        feats, ts_ms = get_latest_features(symbol, timeframe)
+        candles = fetch_klines(symbol, timeframe, limit=2)
+        entry_price = float(candles[-2][4])
+        atr_14 = feats[18] 
 
         model = XGBPure(model_path)
         proba = model.predict_proba([feats])[0]
@@ -115,15 +121,21 @@ async def builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tp1=plan["tp1"], tp2=plan["tp2"], tp3=plan["tp3"]
         )
         
+        # Add a warning if confidence is below 62%
+        warning = ""
+        if confidence < 0.62:
+            warning = "⚠️ WEAK SIGNAL: High risk, do not enter.\n\n"
+
         msg = (
             f"🎯 LEGEND SIGNAL: {symbol} [{timeframe}]\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{warning}"
             f"Direction:  {direction}\n"
             f"Confidence: {confidence*100:.1f}%\n\n"
             f"📊 TRADE PLAN\n"
-            f"Entry:      ${plan['entry']:.5f}\n"
-            f"Stop Loss:  ${plan['stop_loss']:.5f}\n"
-            f"TP1:        ${plan['tp1']:.5f}\n\n"
+            f"Entry:      ${format_price(plan['entry'])}\n"
+            f"Stop Loss:  ${format_price(plan['stop_loss'])}\n"
+            f"TP1:        ${format_price(plan['tp1'])}\n\n"
             f"✅ Saved to DB (ID: {sig_id})"
         )
         await update.message.reply_text(msg)
