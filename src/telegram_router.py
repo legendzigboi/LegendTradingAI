@@ -16,7 +16,9 @@ from src.risk_engine import check_circuit_breaker, set_pause
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID", 0))]
+# --- PILLAR 1: SECURITY ---
+# Added `or 0` to prevent int("") crash if env variable is empty
+AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
 
 def restricted(func):
@@ -24,7 +26,8 @@ def restricted(func):
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id if update.effective_user else None
         if user_id not in AUTHORIZED_USER_IDS:
-            if update.message: await update.message.reply_text("⛔ Unauthorized access.")
+            if update.message: 
+                await update.message.reply_text("⛔ Unauthorized access.")
             return
         return await func(update, context, *args, **kwargs)
     return wrapped
@@ -77,7 +80,6 @@ async def builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     symbol = args[0].upper()
     timeframe = args[1].lower()
     
-    # 1. Check Risk Engine First!
     allowed, risk_msg = check_circuit_breaker()
     if not allowed:
         await update.message.reply_text(risk_msg)
