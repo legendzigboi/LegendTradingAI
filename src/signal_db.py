@@ -1,6 +1,3 @@
-"""
-SQLite database for paper trader signals and outcomes.
-"""
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
@@ -21,7 +18,7 @@ CREATE TABLE IF NOT EXISTS signals (
     tp1 REAL NOT NULL,
     tp2 REAL NOT NULL,
     tp3 REAL NOT NULL,
-    status TEXT DEFAULT 'PENDING',   -- PENDING, WIN, LOSS, EXPIRED
+    status TEXT DEFAULT 'PENDING',
     outcome_price REAL,
     actual_return REAL,
     closed_at TEXT
@@ -56,10 +53,21 @@ def get_pending_trades():
         rows = conn.execute("SELECT * FROM signals WHERE status = 'PENDING' ORDER BY ts DESC").fetchall()
         return [dict(r) for r in rows]
 
+def get_performance_stats():
+    with _connect() as conn:
+        wins = conn.execute("SELECT COUNT(*) FROM signals WHERE status = 'WIN'").fetchone()[0]
+        losses = conn.execute("SELECT COUNT(*) FROM signals WHERE status = 'LOSS'").fetchone()[0]
+        expired = conn.execute("SELECT COUNT(*) FROM signals WHERE status = 'EXPIRED'").fetchone()[0]
+        pending = conn.execute("SELECT COUNT(*) FROM signals WHERE status = 'PENDING'").fetchone()[0]
+        
+        total_closed = wins + losses
+        win_rate = (wins / total_closed * 100) if total_closed > 0 else 0
+        
+        return {
+            "wins": wins, "losses": losses, "expired": expired, 
+            "pending": pending, "win_rate": win_rate, "total_closed": total_closed
+        }
+
 def total_count():
     with _connect() as conn:
         return conn.execute("SELECT COUNT(*) FROM signals").fetchone()[0]
-
-if __name__ == "__main__":
-    init_db()
-    print(f"✅ DB initialized. Total signals: {total_count()}")
