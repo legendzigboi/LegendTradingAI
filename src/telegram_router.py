@@ -67,8 +67,8 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     for res in results[:2]:
-        # 12-HOUR FORMAT
         start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
         duration = res['plan']['duration_min']
         quality = "🔥 STRONG" if res['confidence'] >= 0.70 else "⚡ MODERATE"
         
@@ -79,7 +79,8 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{'🟢 BUY ▲' if res['direction'] == 'LONG' else '🔴 SELL ▼'}\n"
             f"{res['symbol']} · {res['timeframe']}\n\n"
             f"⏱ EXPIRY: {duration} minutes\n"
-            f"Start: {start_str}\n\n"
+            f"Start: {start_str}\n"
+            f"End: {end_str}\n\n"
             f"📊 CONFIDENCE\n"
             f"{res['confidence']*100:.1f}% ({quality})\n\n"
             f"🎯 TRADE PLAN\n"
@@ -88,13 +89,11 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Target: {format_price(res['plan']['tp1'])}\n"
         )
         
-        # Send Banner
         banner_file = await asyncio.to_thread(generate_banner, res['direction'])
         if banner_file:
             with open(banner_file, "rb") as f:
                 await context.bot.send_photo(chat_id=chat_id, photo=f)
                 
-        # Send Chart + Text
         chart_file = await asyncio.to_thread(generate_chart, res['symbol'], res['timeframe'], res['plan'], res['direction'])
         if chart_file:
             with open(chart_file, "rb") as f:
@@ -158,9 +157,9 @@ async def run_analysis(message, symbol, timeframe):
             tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0)
         )
         
-        # 12-HOUR FORMAT FIX
         signal_time = datetime.now(tz=WAT).strftime('%I:%M:%S %p WAT')
         start_str = plan['start_time'].astimezone(WAT).strftime('%I:%M:%S %p WAT')
+        end_str = plan['end_time'].astimezone(WAT).strftime('%I:%M:%S %p WAT')
         duration = plan['duration_min']
         quality = "🔥 STRONG" if confidence >= 0.70 else ("⚡ MODERATE" if confidence >= 0.62 else "⚠️ WEAK")
 
@@ -169,11 +168,12 @@ async def run_analysis(message, symbol, timeframe):
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"PAPER MODE\n\n"
             f"{'🟢 BUY ▲' if direction == 'LONG' else '🔴 SELL ▼'}\n"
-            f"{symbol} · {display_tf}\n"
+            f"{symbol} · Chart: {display_tf}\n"
             f"Engine: {model_name}\n\n"
-            f"⏱ EXPIRY: {duration} minutes\n"
+            f"⏱ EXPIRY: {duration} minutes (H10 Horizon)\n"
             f"Signal Time: {signal_time}\n"
-            f"Start: {start_str}\n\n"
+            f"Start Trade: {start_str}\n"
+            f"End Trade:   {end_str}\n\n"
             f"📊 CONFIDENCE\n"
             f"{confidence*100:.1f}% ({quality})\n\n"
             f"{tech_overview}\n\n"
@@ -184,13 +184,11 @@ async def run_analysis(message, symbol, timeframe):
             f"ID: {sig_id}"
         )
         
-        # 1. Send Banner
         banner_file = await asyncio.to_thread(generate_banner, direction)
         if banner_file:
             with open(banner_file, "rb") as f:
                 await message.reply_photo(photo=f)
 
-        # 2. Send Chart + Text
         chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
         if chart_file:
             with open(chart_file, "rb") as f:

@@ -11,13 +11,16 @@ def build_trade_plan(entry_price, direction, atr_14, timeframe="15m", horizon=10
         stop_loss = entry_price * (1 + (atr_14 * 1.5))
         tp1 = entry_price * (1 - (atr_14 * 2.0))
         
-    # Timeframe mapping for expiry
-    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240}.get(timeframe, 15)
+    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}.get(timeframe, 15)
     now = datetime.now(tz=timezone.utc)
     
-    # Start 1 minute from now, End exactly 1 candle later (like a binary option)
+    # Start in 1 minute
     start_time = now + timedelta(minutes=1) 
-    end_time = start_time + timedelta(minutes=tf_minutes * horizon)
+    
+    # Calculate total minutes based on the AI's horizon (h10) AND the timeframe
+    total_minutes = tf_minutes * horizon
+    
+    end_time = start_time + timedelta(minutes=total_minutes)
     
     return {
         "entry": entry_price,
@@ -25,5 +28,7 @@ def build_trade_plan(entry_price, direction, atr_14, timeframe="15m", horizon=10
         "tp1": tp1,
         "start_time": start_time,
         "end_time": end_time,
-        "duration_min": tf_minutes * horizon
+        "duration_min": total_minutes,
+        "horizon": horizon,
+        "chart_tf": timeframe
     }
