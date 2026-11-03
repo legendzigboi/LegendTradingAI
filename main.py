@@ -1,11 +1,11 @@
 """
-LEGEND TRADING AI - CLOUD WEB WRAPPER
+LEGEND TRADING AI - CLOUD ENGINE (Bot in Main Thread)
 """
 import os
-import asyncio
 import threading
 import logging
 from flask import Flask
+from datetime import time
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 
 from src.config import env
@@ -22,33 +22,31 @@ app = Flask(__name__)
 def health_check():
     return "Legend Trading AI is ALIVE!", 200
 
-# 2. Run the bot in the background
-def run_bot():
+def run_flask():
+    port = int(os.environ.get("PORT", 3000))
+    app.run(host="0.0.0.0", port=port)
+
+# 2. Start everything
+if __name__ == "__main__":
+    # Start Flask in a background daemon thread
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    # Run the Bot in the MAIN thread so errors show up in Cloady
     token = env.get("TELEGRAM_BOT_TOKEN")
     if not token:
-        logger.error("No Telegram token found.")
-        return
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+        logger.error("❌ No Telegram token found in Environment Variables!")
+        exit(1)
 
     bot_app = Application.builder().token(token).post_init(lambda x: x.bot.set_my_commands([("start", "Open Main Menu")])).build()
     bot_app.add_handler(CommandHandler("start", start_command))
     bot_app.add_handler(CommandHandler("signals", signals_command))
     bot_app.add_handler(CallbackQueryHandler(button_handler))
 
+    # Background Jobs
     bot_app.job_queue.run_repeating(check_trades, interval=300, first=10)
-    bot_app.job_queue.run_daily(signals_command, time=__import__('datetime').time(hour=7, minute=0))
-    bot_app.job_queue.run_daily(signals_command, time=__import__('datetime').time(hour=13, minute=0))
-    bot_app.job_queue.run_daily(signals_command, time=__import__('datetime').time(hour=19, minute=0))
+    bot_app.job_queue.run_daily(signals_command, time=time(hour=7, minute=0))
+    bot_app.job_queue.run_daily(signals_command, time=time(hour=13, minute=0))
+    bot_app.job_queue.run_daily(signals_command, time=time(hour=19, minute=0))
 
-    logger.info("🚀 Bot thread started...")
+    logger.info("🚀 Bot is starting polling...")
     bot_app.run_polling()
-
-# 3. Start both
-if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    
-    # Cloady requires binding to the PORT environment variable (usually 3000 or 8000)
-    port = int(os.environ.get("PORT", 3000))
-    app.run(host="0.0.0.0", port=port)
