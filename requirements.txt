@@ -5,3 +5,4 @@ python-telegram-bot[job-queue]
 Flask
 Flask
 Pillow
+psycopg2-binary==2.9.9
