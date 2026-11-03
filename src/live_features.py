@@ -3,13 +3,10 @@ import requests
 from datetime import datetime, timezone
 from src.forex_fetcher import fetch_forex_klines
 
-# Multiple Binance endpoints for fallback
 BINANCE_ENDPOINTS = [
     "https://data-api.binance.vision",
     "https://api.binance.com",
-    "https://api1.binance.com",
-    "https://api2.binance.com",
-    "https://api3.binance.com"
+    "https://api1.binance.com"
 ]
 KLINES = "/api/v3/klines"
 
@@ -21,32 +18,56 @@ FEATURE_NAMES = [
     "obv_slope", "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_weekend",
 ]
 
-def fetch_klines(symbol, interval="1h", limit=300):
-    # THE SMART ROUTER
-    if "=" in symbol or symbol in ["GC=F", "CL=F", "^GSPC"]:
-        return fetch_forex_klines(symbol, interval, limit)
-
-    # Default to Binance (Crypto) with Fallback
-    last_error = None
+def _fetch_binance(symbol, interval, limit):
+    last_err = "Unknown"
     for base_url in BINANCE_ENDPOINTS:
         try:
-            r = requests.get(base_url + KLINES, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=10)
+            r = requests.get(base_url + KLINES, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=8)
             if r.status_code == 200:
                 data = r.json()
                 if isinstance(data, dict) and "code" in data:
-                    raise ValueError(f"Binance API Error: {data.get('msg')}")
+                    raise ValueError(f"API Error: {data.get('msg')}")
                 return data
-            elif r.status_code == 418 or r.status_code == 429:
-                last_error = f"Rate limit on {base_url}"
-                continue # Try the next endpoint
+            elif r.status_code in [418, 429]:
+                last_err = f"Rate limit on {base_url}"
+                continue
             else:
-                last_error = f"HTTP {r.status_code} on {base_url}"
+                last_err = f"HTTP {r.status_code}"
                 continue
         except Exception as e:
-            last_error = str(e)
-            continue
-            
-    raise Exception(f"All Binance endpoints failed. Last error: {last_error}")
+            last_err = str(e)
+    raise Exception(last_err)
+
+def _fetch_bybit(symbol, interval, limit):
+    tf_map = {"1m": "1", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "4h": "240", "1d": "D"}
+    bybit_tf = tf_map.get(interval, "60")
+    url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}&interval={bybit_tf}&limit={limit}"
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("retCode") == 0:
+                candles = data["result"]["list"]
+                candles.reverse() # Bybit returns newest first, we need oldest first
+                return candles
+        raise ValueError(f"Bybit HTTP {r.status_code}")
+    except Exception as e:
+        raise Exception(f"Bybit Error: {str(e)}")
+
+def fetch_klines(symbol, interval="1h", limit=300):
+    # SMART ROUTER (Forex vs Crypto)
+    if "=" in symbol or symbol in ["GC=F", "CL=F", "^GSPC"]:
+        return fetch_forex_klines(symbol, interval, limit)
+
+    # Try Binance
+    try:
+        return _fetch_binance(symbol, interval, limit)
+    except Exception as binance_err:
+        # If Binance is banned, silently fallback to Bybit
+        try:
+            return _fetch_bybit(symbol, interval, limit)
+        except Exception as bybit_err:
+            raise Exception(f"All Crypto APIs Failed. Binance: {binance_err} | Bybit: {bybit_err}")
 
 def _ema(values, span):
     if not values: return []
@@ -114,7 +135,6 @@ def compute_features(candles):
     bb_width = (2 * std20_price) / sma20 if (sma20 and std20_price) else 0
 
     vol_sma20 = _sma(volumes, 20) or 1; vol_sma50 = _sma(volumes, 50) or 1
-    # Handle Forex Zero Volume
     if sum(volumes) == 0:
         volume_ratio_20 = 0; volume_ratio_50 = 0; obv_slope = 0
     else:
