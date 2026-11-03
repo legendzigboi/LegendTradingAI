@@ -21,6 +21,7 @@ from src.telegram_keyboards import get_main_menu, get_market_menu, get_crypto_me
 from src.engines.fusion_engine import FusionEngine
 from src.research_engine import run_research_lab
 from src.news_filter import check_high_impact_news
+from src.sentiment_engine import get_market_sentiment
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -75,7 +76,6 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     for res in results[:2]:
-        # 🚨 NEWS FILTER 🚨
         is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, res['symbol'])
         if not is_safe:
             await context.bot.send_message(chat_id=chat_id, text=f"⛔ TRADE BLOCKED: {news_warning}")
@@ -120,11 +120,14 @@ async def run_analysis(message, symbol, timeframe):
         await message.reply_text(risk_msg, parse_mode=None)
         return
 
-    # 🚨 NEWS FILTER 🚨
+    # 1. News Filter
     is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, symbol)
     if not is_safe:
         await message.reply_text(f"⛔ **TRADE BLOCKED**\n\n{news_warning}\n\n*Protecting capital during high volatility.*", parse_mode="Markdown")
         return
+        
+    # 2. Sentiment Filter
+    sentiment, sentiment_reason = await asyncio.to_thread(get_market_sentiment, symbol)
 
     try:
         if timeframe == 'FUSION':
@@ -177,6 +180,14 @@ async def run_analysis(message, symbol, timeframe):
                 parse_mode="Markdown"
             )
             return
+            
+        # 🚨 SENTIMENT CHECK 🚨
+        if direction == "LONG" and sentiment == "BEARISH":
+            await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to BUY, but News Sentiment is BEARISH.\n{sentiment_reason}", parse_mode="Markdown")
+            return
+        if direction == "SHORT" and sentiment == "BULLISH":
+            await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to SELL, but News Sentiment is BULLISH.\n{sentiment_reason}", parse_mode="Markdown")
+            return
 
         tech_overview = get_technical_overview(feats, direction, display_tf)
         sig_id = log_signal(symbol=symbol, timeframe=display_tf, direction=direction, model_version=model_name, confidence=float(confidence), entry_price=plan["entry"], stop_loss=plan["stop_loss"], tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0))
@@ -186,6 +197,9 @@ async def run_analysis(message, symbol, timeframe):
         end_str = plan['end_time'].astimezone(WAT).strftime('%I:%M:%S %p WAT')
         duration = plan['duration_min']
         quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
+
+        # Add Sentiment to the message
+        sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
 
         msg = (
             f"🤖 LEGEND TRADING AI\n"
@@ -199,7 +213,8 @@ async def run_analysis(message, symbol, timeframe):
             f"Start Trade: {start_str}\n"
             f"End Trade:   {end_str}\n\n"
             f"📊 CONFIDENCE\n"
-            f"{confidence*100:.1f}% ({quality})\n\n"
+            f"{confidence*100:.1f}% ({quality})\n"
+            f"📰 Sentiment: {sent_emoji} {sentiment}\n\n"
             f"{tech_overview}\n\n"
             f"🎯 TRADE PLAN\n"
             f"Entry: {format_price(plan['entry'])}\n"
@@ -250,12 +265,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_pause':
         set_pause(True)
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
-        
     elif query.data == 'menu_research':
         await query.edit_message_text("🔬 Running Research Lab... Scanning database for patterns.", reply_markup=None)
         result = await asyncio.to_thread(run_research_lab)
         await query.edit_message_text(result, reply_markup=get_main_menu())
-        
     elif query.data == 'menu_memory':
         insights = get_all_insights()
         if not insights:
@@ -266,11 +279,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 emoji = "🔥" if i['category'] == "EDGE" else ("⚠️" if i['category'] == "WARNING" else "📊")
                 text += f"{emoji} {i['insight']}\n*(Sample Size: {i['sample_size']})*\n\n"
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_main_menu())
-        
     elif query.data == 'menu_testing':
         await query.edit_message_text("⚙️ **MODEL TESTING**\n\nBacktest and validate new models before promoting them to the live engine.\n\n(Coming Soon: /backtest)", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_status':
-        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit\n- Risk Engine: Active", parse_mode="Markdown", reply_markup=get_main_menu())
+        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_performance':
         stats = get_performance_stats()
         text = (
