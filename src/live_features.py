@@ -3,7 +3,14 @@ import requests
 from datetime import datetime, timezone
 from src.forex_fetcher import fetch_forex_klines
 
-BINANCE = "https://data-api.binance.vision"
+# Multiple Binance endpoints for fallback
+BINANCE_ENDPOINTS = [
+    "https://data-api.binance.vision",
+    "https://api.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com"
+]
 KLINES = "/api/v3/klines"
 
 FEATURE_NAMES = [
@@ -19,18 +26,27 @@ def fetch_klines(symbol, interval="1h", limit=300):
     if "=" in symbol or symbol in ["GC=F", "CL=F", "^GSPC"]:
         return fetch_forex_klines(symbol, interval, limit)
 
-    # Default to Binance (Crypto)
-    try:
-        r = requests.get(BINANCE + KLINES, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=15)
-        if r.status_code != 200:
-            raise ValueError(f"Binance HTTP Error {r.status_code}: {r.text[:100]}")
+    # Default to Binance (Crypto) with Fallback
+    last_error = None
+    for base_url in BINANCE_ENDPOINTS:
+        try:
+            r = requests.get(base_url + KLINES, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, dict) and "code" in data:
+                    raise ValueError(f"Binance API Error: {data.get('msg')}")
+                return data
+            elif r.status_code == 418 or r.status_code == 429:
+                last_error = f"Rate limit on {base_url}"
+                continue # Try the next endpoint
+            else:
+                last_error = f"HTTP {r.status_code} on {base_url}"
+                continue
+        except Exception as e:
+            last_error = str(e)
+            continue
             
-        data = r.json()
-        if isinstance(data, dict) and "code" in data:
-            raise ValueError(f"Binance API Error: {data.get('msg')}")
-        return data
-    except Exception as e:
-        raise Exception(f"Failed to fetch Binance data: {str(e)}")
+    raise Exception(f"All Binance endpoints failed. Last error: {last_error}")
 
 def _ema(values, span):
     if not values: return []
