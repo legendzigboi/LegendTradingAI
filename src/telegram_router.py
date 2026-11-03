@@ -22,18 +22,16 @@ from src.engines.fusion_engine import FusionEngine
 from src.research_engine import run_research_lab
 from src.news_filter import check_high_impact_news
 from src.sentiment_engine import get_market_sentiment
+from src.deep_researcher import deep_research_trade
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
-
-# 🚨 SNIPER MODE UPGRADES 🚨
-MIN_CONFIDENCE = 0.65  # Raised from 60% to 65%
-MIN_ATR_CRYPTO = 0.0015 # Must have at least 0.15% average movement
-MIN_ATR_FOREX = 0.0003  # Must have at least 0.03% average movement
-
+MIN_CONFIDENCE = 0.65 
+MIN_ATR_CRYPTO = 0.0015 
+MIN_ATR_FOREX = 0.0003  
 WAT = timezone(timedelta(hours=1))
 
 def format_price(price):
@@ -86,6 +84,17 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=f"⛔ TRADE BLOCKED: {news_warning}")
             continue
 
+        # Get sentiment
+        sentiment, sentiment_reason = await asyncio.to_thread(get_market_sentiment, res['symbol'])
+        
+        # 🚨 DEEP RESEARCHER CHECK 🚨
+        research_approved, research_reason = await asyncio.to_thread(
+            deep_research_trade, res['symbol'], res['direction'], res['confidence'], sentiment, sentiment_reason
+        )
+        if not research_approved:
+            await context.bot.send_message(chat_id=chat_id, text=f"🧠 **DEEP RESEARCH VETO**\n\n{research_reason}", parse_mode="Markdown")
+            continue
+
         start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
         end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
         duration = res['plan']['duration_min']
@@ -125,13 +134,11 @@ async def run_analysis(message, symbol, timeframe):
         await message.reply_text(risk_msg, parse_mode=None)
         return
 
-    # 1. News Filter
     is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, symbol)
     if not is_safe:
         await message.reply_text(f"⛔ **TRADE BLOCKED**\n\n{news_warning}\n\n*Protecting capital during high volatility.*", parse_mode="Markdown")
         return
         
-    # 2. Sentiment Filter
     sentiment, sentiment_reason = await asyncio.to_thread(get_market_sentiment, symbol)
 
     try:
@@ -176,7 +183,6 @@ async def run_analysis(message, symbol, timeframe):
             plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
             display_tf = timeframe
 
-        # 🚨 VOLATILITY FILTER (Dead Market Killer) 🚨
         atr_val = feats[18]
         is_crypto = "USDT" in symbol
         min_atr = MIN_ATR_CRYPTO if is_crypto else MIN_ATR_FOREX
@@ -185,7 +191,6 @@ async def run_analysis(message, symbol, timeframe):
             await message.reply_text(f"⚪ **NO TRADE**\n\nMarket is too flat (Low Volatility). ATR is only {atr_val*100:.3f}%. Avoiding chop.", parse_mode="Markdown")
             return
 
-        # 🚨 STRICT CONFIDENCE CHECK 🚨
         if confidence < MIN_CONFIDENCE:
             await message.reply_text(
                 f"⚪ **NO TRADE**\n\n"
@@ -196,12 +201,21 @@ async def run_analysis(message, symbol, timeframe):
             )
             return
             
-        # 🚨 SENTIMENT CHECK 🚨
         if direction == "LONG" and sentiment == "BEARISH":
             await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to BUY, but News Sentiment is BEARISH.\n{sentiment_reason}", parse_mode="Markdown")
             return
         if direction == "SHORT" and sentiment == "BULLISH":
             await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to SELL, but News Sentiment is BULLISH.\n{sentiment_reason}", parse_mode="Markdown")
+            return
+
+        # 🚨 DEEP RESEARCHER CHECK 🚨
+        await message.reply_text("🧠 Running Deep Research (LLM Analysis)...")
+        research_approved, research_reason = await asyncio.to_thread(
+            deep_research_trade, symbol, direction, confidence, sentiment, sentiment_reason
+        )
+        
+        if not research_approved:
+            await message.reply_text(f"⛔ **TRADE VETOED BY DEEP RESEARCHER**\n\n{research_reason}", parse_mode="Markdown")
             return
 
         tech_overview = get_technical_overview(feats, direction, display_tf)
@@ -229,7 +243,9 @@ async def run_analysis(message, symbol, timeframe):
             f"📊 CONFIDENCE\n"
             f"{confidence*100:.1f}% ({quality})\n"
             f"📰 Sentiment: {sent_emoji} {sentiment}\n"
-            f"📉 Volatility: {atr_val*100:.3f}% (Healthy)\n\n"
+            f"📉 Volatility: {atr_val*100:.3f}% (Healthy)\n"
+            f"🧠 Deep Research: ✅ APPROVED\n"
+            f"*(Reason: {research_reason})*\n\n"
             f"{tech_overview}\n\n"
             f"🎯 TRADE PLAN\n"
             f"Entry: {format_price(plan['entry'])}\n"
@@ -238,7 +254,7 @@ async def run_analysis(message, symbol, timeframe):
             f"ID: {sig_id}"
         )
         
-        await message.reply_text("⏳ Generating complete signal...")
+        await message.reply_text("⏳ Generating complete signal image...")
 
         try:
             static_img = "buy.png" if direction == "LONG" else "sell.png"
@@ -297,7 +313,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_testing':
         await query.edit_message_text("⚙️ **MODEL TESTING**\n\nBacktest and validate new models before promoting them to the live engine.\n\n(Coming Soon: /backtest)", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_status':
-        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active\n- Sniper Mode: Active (65% / ATR Filter)", parse_mode="Markdown", reply_markup=get_main_menu())
+        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active\n- Deep Researcher (LLM): Active", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_performance':
         stats = get_performance_stats()
         text = (
