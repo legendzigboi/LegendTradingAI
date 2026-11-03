@@ -52,6 +52,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🤖 LEGEND TRADING AI PREMIUM\n━━━━━━━━━━━━━━━━━━━━\nWelcome. Select an option below:"
     await update.message.reply_text(text, reply_markup=get_main_menu())
 
+# Wrapper to allow JobQueue to call this without an update object
+async def scheduled_scan_job(context):
+    await signals_command(None, context)
+
 @restricted
 async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id if update else AUTHORIZED_USER_IDS[0]
@@ -90,17 +94,23 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Target: {format_price(res['plan']['tp1'])}\n"
         )
         
-        banner_file = await asyncio.to_thread(generate_banner, res['direction'])
-        chart_file = await asyncio.to_thread(generate_chart, res['symbol'], res['timeframe'], res['plan'], res['direction'])
-        
-        if banner_file and chart_file:
-            combined_file = combine_banner_and_chart(banner_file, chart_file)
-            if combined_file:
-                with open(combined_file, "rb") as f:
-                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+        try:
+            banner_file = await asyncio.to_thread(generate_banner, res['direction'])
+            chart_file = await asyncio.to_thread(generate_chart, res['symbol'], res['timeframe'], res['plan'], res['direction'])
+            
+            if banner_file and chart_file:
+                combined_file = combine_banner_and_chart(banner_file, chart_file)
+                if combined_file:
+                    with open(combined_file, "rb") as f:
+                        await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+                else:
+                    logger.error("combine_banner_and_chart returned None")
+                    await context.bot.send_message(chat_id=chat_id, text=msg)
             else:
+                logger.error(f"Banner: {banner_file}, Chart: {chart_file}")
                 await context.bot.send_message(chat_id=chat_id, text=msg)
-        else:
+        except Exception as e:
+            logger.error(f"Image generation error: {e}")
             await context.bot.send_message(chat_id=chat_id, text=msg)
 
 async def run_analysis(message, symbol, timeframe):
@@ -171,17 +181,23 @@ async def run_analysis(message, symbol, timeframe):
         
         await message.reply_text("⏳ Generating complete signal...")
 
-        banner_file = await asyncio.to_thread(generate_banner, direction)
-        chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
+        try:
+            banner_file = await asyncio.to_thread(generate_banner, direction)
+            chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
 
-        if banner_file and chart_file:
-            combined_file = combine_banner_and_chart(banner_file, chart_file)
-            if combined_file:
-                with open(combined_file, "rb") as f:
-                    await message.reply_photo(photo=f, caption=msg)
+            if banner_file and chart_file:
+                combined_file = combine_banner_and_chart(banner_file, chart_file)
+                if combined_file:
+                    with open(combined_file, "rb") as f:
+                        await message.reply_photo(photo=f, caption=msg)
+                else:
+                    logger.error("combine_banner_and_chart returned None")
+                    await message.reply_text(msg)
             else:
+                logger.error(f"Banner file: {banner_file}, Chart file: {chart_file}")
                 await message.reply_text(msg)
-        else:
+        except Exception as img_err:
+            logger.error(f"Image generation failed: {img_err}")
             await message.reply_text(msg)
 
     except Exception as e:
