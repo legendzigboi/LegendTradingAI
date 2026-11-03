@@ -52,19 +52,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🤖 LEGEND TRADING AI PREMIUM\n━━━━━━━━━━━━━━━━━━━━\nWelcome. Select an option below:"
     await update.message.reply_text(text, reply_markup=get_main_menu())
 
-async def send_chart_async(bot, chat_id, symbol, timeframe, plan, direction):
-    """Generates and sends the image in the background."""
-    try:
-        banner_file = await asyncio.to_thread(generate_banner, direction)
-        chart_file = await asyncio.to_thread(generate_chart, symbol, timeframe, plan, direction)
-        if banner_file and chart_file:
-            combined_file = combine_banner_and_chart(banner_file, chart_file)
-            if combined_file:
-                with open(combined_file, "rb") as f:
-                    await bot.send_photo(chat_id=chat_id, photo=f)
-    except Exception as e:
-        logger.error(f"Failed to send chart: {e}")
-
 async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
     if not allowed:
@@ -97,6 +84,8 @@ async def run_analysis(message, symbol, timeframe):
             proba = model.predict_proba([feats])[0]
             direction = "LONG" if proba > 0.5 else "SHORT"
             confidence = proba if proba > 0.5 else (1 - proba)
+            
+            # Pass the EXACT timeframe string so the planner matches the minutes
             plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
             display_tf = timeframe
 
@@ -116,7 +105,7 @@ async def run_analysis(message, symbol, timeframe):
             f"{'🟢 BUY ▲' if direction == 'LONG' else '🔴 SELL ▼'}\n"
             f"{symbol} · Chart: {display_tf}\n"
             f"Engine: {model_name}\n\n"
-            f"⏱ EXPIRY: {duration} minutes (H10 Horizon)\n"
+            f"⏱ EXPIRY: {duration} minutes\n"
             f"Signal Time: {signal_time}\n"
             f"Start Trade: {start_str}\n"
             f"End Trade:   {end_str}\n\n"
@@ -130,12 +119,22 @@ async def run_analysis(message, symbol, timeframe):
             f"ID: {sig_id}"
         )
         
-        # 1. INSTANTLY SEND TEXT
-        await message.reply_text(msg)
-        
-        # 2. SEND CHART IN BACKGROUND
-        chat_id = message.chat.id
-        asyncio.create_task(send_chart_async(message.get_bot(), chat_id, symbol, display_tf, plan, direction))
+        await message.reply_text("⏳ Generating chart and signal...")
+
+        # Generate both images
+        banner_file = await asyncio.to_thread(generate_banner, direction)
+        chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
+
+        # Send them together as one Photo with the caption
+        if banner_file and chart_file:
+            combined_file = combine_banner_and_chart(banner_file, chart_file)
+            if combined_file:
+                with open(combined_file, "rb") as f:
+                    await message.reply_photo(photo=f, caption=msg)
+            else:
+                await message.reply_text(msg)
+        else:
+            await message.reply_text(msg)
 
     except Exception as e:
         await message.reply_text(f"❌ Error: {str(e)}")
