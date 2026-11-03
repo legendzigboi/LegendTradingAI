@@ -238,13 +238,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_pause(True)
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
         
-    # 🚨 CONNECTING THE RESEARCH LAB BUTTON 🚨
     elif query.data == 'menu_research':
-        await query.edit_message_text("🔬 Running Research Lab... Scanning database for patterns.", reply_markup=get_main_menu())
+        # 🚨 CLEAN EDIT INSTEAD OF NEW MESSAGE 🚨
+        await query.edit_message_text("🔬 Running Research Lab... Scanning database for patterns.", reply_markup=None)
         result = await asyncio.to_thread(run_research_lab)
-        await context.bot.send_message(chat_id=query.message.chat_id, text=result, reply_markup=get_main_menu())
+        await query.edit_message_text(result, reply_markup=get_main_menu())
         
-    # 🚨 CONNECTING THE AI MEMORY BUTTON 🚨
     elif query.data == 'menu_memory':
         insights = get_all_insights()
         if not insights:
@@ -279,5 +278,5 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith('tf_'):
         parts = query.data.split('_')
         tf_type, symbol = parts[1], parts[2]
-        await query.edit_message_text(f"🔍 Analyzing {symbol} on {tf_type}...\nPlease wait.")
+        await query.edit_message_text(f"🔍 Analyzing {symbol} on {tf_type}...\nPlease wait.", reply_markup=None)
         await run_analysis(query.message, symbol, tf_type)

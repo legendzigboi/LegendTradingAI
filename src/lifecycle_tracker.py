@@ -5,7 +5,6 @@ from src.live_features import fetch_klines
 from src.telegram_notify import send_message
 
 async def check_trades(context=None):
-    # Use our new Postgres function to get pending trades
     trades = get_pending_trades()
         
     if not trades:
@@ -47,15 +46,26 @@ async def check_trades(context=None):
                 if high >= t["stop_loss"]: status, outcome_price = "LOSS", t["stop_loss"]; break
                 elif low <= t["tp1"]: status, outcome_price = "WIN", t["tp1"]; break
                     
+        # 🚨 NEW LOGIC: If time is up, classify as WIN or LOSS based on final price 🚨
         if status == "PENDING" and hours_elapsed >= horizon_hours:
-            status = "EXPIRED"
             outcome_price = float(candles[-1][4])
+            if t["direction"] == "LONG": 
+                actual_return = (outcome_price - t["entry_price"]) / t["entry_price"]
+            else: 
+                actual_return = (t["entry_price"] - outcome_price) / t["entry_price"]
+            
+            if actual_return > 0.00005: # If it closed in profit
+                status = "WIN"
+            elif actual_return < -0.00005: # If it closed in loss
+                status = "LOSS"
+            else:
+                status = "EXPIRED" # Exactly breakeven
             
         if status != "PENDING":
-            if t["direction"] == "LONG": actual_return = (outcome_price - t["entry_price"]) / t["entry_price"]
-            else: actual_return = (t["entry_price"] - outcome_price) / t["entry_price"]
+            if actual_return is None:
+                if t["direction"] == "LONG": actual_return = (outcome_price - t["entry_price"]) / t["entry_price"]
+                else: actual_return = (t["entry_price"] - outcome_price) / t["entry_price"]
                 
-            # Use our new Postgres function to close the trade
             close_trade(t["id"], status, outcome_price, actual_return, now.isoformat())
                 
             msg = f"🔔 TRADE CLOSED: {symbol} (ID: {t['id']})\nResult: {status}\nReturn: {actual_return*100:+.2f}%"
