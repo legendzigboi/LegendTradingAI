@@ -24,6 +24,15 @@ class BaseEngine:
         if not model_path.exists():
             model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
             model_path = MODEL_DIR / model_name
+            
+        # 🚨 SMART TIMEFRAME FALLBACK 🚨
+        if not model_path.exists():
+            fallback_tf = "5m" if tf == "15m" else "1h"
+            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
+            model_path = MODEL_DIR / model_name
+            if model_path.exists():
+                logger.info(f"Fallback: Using {fallback_tf} model for {symbol} instead of {tf}")
+                tf = fallback_tf # Update tf so the trade plan matches
 
         model = get_model(model_path)
         if not model:
@@ -43,7 +52,7 @@ class BaseEngine:
             plan = build_trade_plan(entry_price, direction, atr_14, tf)
 
             return {
-                "engine": self.name,
+                "engine": f"{self.name} ({tf})", # Show which timeframe was used
                 "symbol": symbol,
                 "timeframe": tf,
                 "direction": direction,
