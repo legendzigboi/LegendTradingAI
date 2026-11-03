@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import os
 from functools import wraps
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
@@ -52,7 +53,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🤖 LEGEND TRADING AI PREMIUM\n━━━━━━━━━━━━━━━━━━━━\nWelcome. Select an option below:"
     await update.message.reply_text(text, reply_markup=get_main_menu())
 
-# Wrapper to allow JobQueue to call this without an update object
 async def scheduled_scan_job(context):
     await signals_command(None, context)
 
@@ -94,23 +94,16 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Target: {format_price(res['plan']['tp1'])}\n"
         )
         
+        # BULLETPROOF IMAGE LOGIC FOR SCANNER
         try:
-            banner_file = await asyncio.to_thread(generate_banner, res['direction'])
-            chart_file = await asyncio.to_thread(generate_chart, res['symbol'], res['timeframe'], res['plan'], res['direction'])
-            
-            if banner_file and chart_file:
-                combined_file = combine_banner_and_chart(banner_file, chart_file)
-                if combined_file:
-                    with open(combined_file, "rb") as f:
-                        await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
-                else:
-                    logger.error("combine_banner_and_chart returned None")
-                    await context.bot.send_message(chat_id=chat_id, text=msg)
+            static_img = "buy.png" if res['direction'] == "LONG" else "sell.png"
+            if os.path.exists(static_img):
+                with open(static_img, "rb") as f:
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
             else:
-                logger.error(f"Banner: {banner_file}, Chart: {chart_file}")
                 await context.bot.send_message(chat_id=chat_id, text=msg)
         except Exception as e:
-            logger.error(f"Image generation error: {e}")
+            logger.error(f"Scanner image error: {e}")
             await context.bot.send_message(chat_id=chat_id, text=msg)
 
 async def run_analysis(message, symbol, timeframe):
@@ -131,12 +124,9 @@ async def run_analysis(message, symbol, timeframe):
             model_name, display_tf = res['engine'], res['timeframe']
         else:
             safe_symbol = symbol.replace("=", "_")
-            
-            # Try the new H1 models first (Crypto)
             model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
             model_path = MODEL_DIR / model_name
             
-            # If H1 doesn't exist, fallback to H10 (Forex)
             if not model_path.exists():
                 model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
                 model_path = MODEL_DIR / model_name
@@ -188,23 +178,33 @@ async def run_analysis(message, symbol, timeframe):
         
         await message.reply_text("⏳ Generating complete signal...")
 
+        # BULLETPROOF IMAGE LOGIC
         try:
-            banner_file = await asyncio.to_thread(generate_banner, direction)
-            chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
+            # 1. Default to static images
+            static_img = "buy.png" if direction == "LONG" else "sell.png"
+            final_img = static_img
 
-            if banner_file and chart_file:
-                combined_file = combine_banner_and_chart(banner_file, chart_file)
-                if combined_file:
-                    with open(combined_file, "rb") as f:
-                        await message.reply_photo(photo=f, caption=msg)
-                else:
-                    logger.error("combine_banner_and_chart returned None")
-                    await message.reply_text(msg)
+            # 2. Try to generate dynamic chart, but don't wait more than 5 seconds
+            try:
+                chart_file = await asyncio.wait_for(
+                    asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction),
+                    timeout=5.0
+                )
+                if chart_file and os.path.exists(chart_file):
+                    final_img = chart_file
+            except Exception as chart_err:
+                logger.warning(f"Chart generation skipped/timed out: {chart_err}")
+
+            # 3. Send the image (dynamic if it worked, static if it didn't)
+            if os.path.exists(final_img):
+                with open(final_img, "rb") as f:
+                    await message.reply_photo(photo=f, caption=msg)
             else:
-                logger.error(f"Banner file: {banner_file}, Chart file: {chart_file}")
+                # If even the static image is missing, just send text
                 await message.reply_text(msg)
+                
         except Exception as img_err:
-            logger.error(f"Image generation failed: {img_err}")
+            logger.error(f"Image sending failed: {img_err}")
             await message.reply_text(msg)
 
     except Exception as e:
