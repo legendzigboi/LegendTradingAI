@@ -1,7 +1,11 @@
 import json
 import requests
+import urllib.parse
 from datetime import datetime, timezone
+import logging
 from src.live_features import fetch_klines
+
+logger = logging.getLogger(__name__)
 
 def generate_chart(symbol, timeframe, plan, direction):
     try:
@@ -32,14 +36,17 @@ def generate_chart(symbol, timeframe, plan, direction):
             }
         }
         
-        # Increased timeout to 30 seconds
+        # Increased timeout to 30 seconds for Render's network
         response = requests.post("https://quickchart.io/chart", json={"chart": chart_config}, timeout=30)
+        
         if response.status_code == 200:
             with open("chart.png", "wb") as f:
                 f.write(response.content)
             return "chart.png"
         else:
-            print(f"QuickChart HTTP Error: {response.status_code}")
+            logger.error(f"QuickChart HTTP Error {response.status_code}: {response.text[:200]}")
+            
     except Exception as e:
-        print(f"Chart generation error: {e}")
+        logger.error(f"Chart generation error: {e}")
+    
     return None
