@@ -4,8 +4,12 @@ def get_main_menu():
     keyboard = [
         [InlineKeyboardButton("🧠 AI SIGNALS (FUSION)", callback_data='menu_signals')],
         [InlineKeyboardButton("💹 SELECT MARKET", callback_data='menu_market')],
-        [InlineKeyboardButton("📊 PERFORMANCE", callback_data='menu_performance')],
-        [InlineKeyboardButton("🛑 PAUSE SIGNALS", callback_data='menu_pause')]
+        [InlineKeyboardButton("🔬 RESEARCH LAB", callback_data='menu_research'),
+         InlineKeyboardButton("🧠 AI MEMORY", callback_data='menu_memory')],
+        [InlineKeyboardButton("⚙️ MODEL TESTING", callback_data='menu_testing'),
+         InlineKeyboardButton("📊 PERFORMANCE", callback_data='menu_performance')],
+        [InlineKeyboardButton("🤖 SYSTEM STATUS", callback_data='menu_status'),
+         InlineKeyboardButton("🛑 PAUSE SIGNALS", callback_data='menu_pause')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
