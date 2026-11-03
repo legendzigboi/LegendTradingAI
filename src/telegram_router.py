@@ -20,6 +20,7 @@ from src.signal_scanner import scan_markets
 from src.telegram_keyboards import get_main_menu, get_market_menu, get_crypto_menu, get_forex_menu, get_timeframe_menu
 from src.engines.fusion_engine import FusionEngine
 from src.research_engine import run_research_lab
+from src.news_filter import check_high_impact_news
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,6 +75,12 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     for res in results[:2]:
+        # 🚨 NEWS FILTER 🚨
+        is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, res['symbol'])
+        if not is_safe:
+            await context.bot.send_message(chat_id=chat_id, text=f"⛔ TRADE BLOCKED: {news_warning}")
+            continue
+
         start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
         end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
         duration = res['plan']['duration_min']
@@ -111,6 +118,12 @@ async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
     if not allowed:
         await message.reply_text(risk_msg, parse_mode=None)
+        return
+
+    # 🚨 NEWS FILTER 🚨
+    is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, symbol)
+    if not is_safe:
+        await message.reply_text(f"⛔ **TRADE BLOCKED**\n\n{news_warning}\n\n*Protecting capital during high volatility.*", parse_mode="Markdown")
         return
 
     try:
@@ -239,7 +252,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
         
     elif query.data == 'menu_research':
-        # 🚨 CLEAN EDIT INSTEAD OF NEW MESSAGE 🚨
         await query.edit_message_text("🔬 Running Research Lab... Scanning database for patterns.", reply_markup=None)
         result = await asyncio.to_thread(run_research_lab)
         await query.edit_message_text(result, reply_markup=get_main_menu())
