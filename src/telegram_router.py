@@ -28,8 +28,13 @@ logger = logging.getLogger(__name__)
 
 AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
+
+# 🚨 SNIPER MODE UPGRADES 🚨
+MIN_CONFIDENCE = 0.65  # Raised from 60% to 65%
+MIN_ATR_CRYPTO = 0.0015 # Must have at least 0.15% average movement
+MIN_ATR_FOREX = 0.0003  # Must have at least 0.03% average movement
+
 WAT = timezone(timedelta(hours=1))
-MIN_CONFIDENCE = 0.60 
 
 def format_price(price):
     if price >= 1000: return f"{price:,.2f}"
@@ -171,12 +176,22 @@ async def run_analysis(message, symbol, timeframe):
             plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
             display_tf = timeframe
 
+        # 🚨 VOLATILITY FILTER (Dead Market Killer) 🚨
+        atr_val = feats[18]
+        is_crypto = "USDT" in symbol
+        min_atr = MIN_ATR_CRYPTO if is_crypto else MIN_ATR_FOREX
+        
+        if atr_val < min_atr:
+            await message.reply_text(f"⚪ **NO TRADE**\n\nMarket is too flat (Low Volatility). ATR is only {atr_val*100:.3f}%. Avoiding chop.", parse_mode="Markdown")
+            return
+
+        # 🚨 STRICT CONFIDENCE CHECK 🚨
         if confidence < MIN_CONFIDENCE:
             await message.reply_text(
                 f"⚪ **NO TRADE**\n\n"
                 f"Pair: {symbol} ({display_tf})\n"
                 f"AI Confidence: {confidence*100:.1f}%\n\n"
-                f"❌ Setup rejected because confidence is below our {MIN_CONFIDENCE*100:.0f}% safety threshold to avoid losses.",
+                f"❌ Setup rejected because confidence is below our {MIN_CONFIDENCE*100:.0f}% safety threshold.",
                 parse_mode="Markdown"
             )
             return
@@ -198,7 +213,6 @@ async def run_analysis(message, symbol, timeframe):
         duration = plan['duration_min']
         quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
 
-        # Add Sentiment to the message
         sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
 
         msg = (
@@ -214,7 +228,8 @@ async def run_analysis(message, symbol, timeframe):
             f"End Trade:   {end_str}\n\n"
             f"📊 CONFIDENCE\n"
             f"{confidence*100:.1f}% ({quality})\n"
-            f"📰 Sentiment: {sent_emoji} {sentiment}\n\n"
+            f"📰 Sentiment: {sent_emoji} {sentiment}\n"
+            f"📉 Volatility: {atr_val*100:.3f}% (Healthy)\n\n"
             f"{tech_overview}\n\n"
             f"🎯 TRADE PLAN\n"
             f"Entry: {format_price(plan['entry'])}\n"
@@ -282,7 +297,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_testing':
         await query.edit_message_text("⚙️ **MODEL TESTING**\n\nBacktest and validate new models before promoting them to the live engine.\n\n(Coming Soon: /backtest)", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_status':
-        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active", parse_mode="Markdown", reply_markup=get_main_menu())
+        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active\n- Sniper Mode: Active (65% / ATR Filter)", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_performance':
         stats = get_performance_stats()
         text = (
