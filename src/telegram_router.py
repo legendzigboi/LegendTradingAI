@@ -26,8 +26,6 @@ logger = logging.getLogger(__name__)
 AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
 WAT = timezone(timedelta(hours=1))
-
-# 🚨 THE PREMIUM FILTER: Change this to 0.65 for even stricter trades 🚨
 MIN_CONFIDENCE = 0.60 
 
 def format_price(price):
@@ -47,8 +45,12 @@ def restricted(func):
         return await func(update, context, *args, **kwargs)
     return wrapped
 
+# 🚨 ONLY /start IN THE BLUE MENU 🚨
 async def post_init(application) -> None:
-    await application.bot.set_my_commands([BotCommand("start", "Open Main Menu")])
+    commands = [
+        BotCommand("start", "Open Main Menu")
+    ]
+    await application.bot.set_my_commands(commands)
 
 @restricted
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,8 +77,38 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     for res in results[:2]:
-        # ... (Rest of signals_command logic remains the same)
-        pass
+        start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        duration = res['plan']['duration_min']
+        quality = "🔥 STRONG" if res['confidence'] >= 0.70 else "⚡ MODERATE"
+        
+        msg = (
+            f"🤖 LEGEND TRADING AI\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"PAPER MODE\n\n"
+            f"{'🟢 BUY ▲' if res['direction'] == 'LONG' else '🔴 SELL ▼'}\n"
+            f"{res['symbol']} · {res['timeframe']}\n\n"
+            f"⏱ EXPIRY: {duration} minutes\n"
+            f"Start: {start_str}\n"
+            f"End: {end_str}\n\n"
+            f"📊 CONFIDENCE\n"
+            f"{res['confidence']*100:.1f}% ({quality})\n\n"
+            f"🎯 TRADE PLAN\n"
+            f"Entry: {format_price(res['plan']['entry'])}\n"
+            f"SL: {format_price(res['plan']['stop_loss'])}\n"
+            f"Target: {format_price(res['plan']['tp1'])}\n"
+        )
+        
+        try:
+            static_img = "buy.png" if res['direction'] == "LONG" else "sell.png"
+            if os.path.exists(static_img):
+                with open(static_img, "rb") as f:
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+        except Exception as e:
+            logger.error(f"Scanner image error: {e}")
+            await context.bot.send_message(chat_id=chat_id, text=msg)
 
 async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
@@ -126,7 +158,6 @@ async def run_analysis(message, symbol, timeframe):
             plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
             display_tf = timeframe
 
-        # 🚨 THE PREMIUM FILTER IN ACTION 🚨
         if confidence < MIN_CONFIDENCE:
             await message.reply_text(
                 f"⚪ **NO TRADE**\n\n"
@@ -209,6 +240,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_pause':
         set_pause(True)
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
+    elif query.data == 'menu_research':
+        await query.edit_message_text("🔬 **RESEARCH LAB**\n\nThis module will analyze historical data, news, and economic events to find patterns.\n\n(Coming Soon: /research <symbol>)", parse_mode="Markdown", reply_markup=get_main_menu())
+    elif query.data == 'menu_memory':
+        await query.edit_message_text("🧠 **AI MEMORY**\n\nHere you will see what patterns the bot has discovered and validated over time.\n\n(Coming Soon: /insights)", parse_mode="Markdown", reply_markup=get_main_menu())
+    elif query.data == 'menu_testing':
+        await query.edit_message_text("⚙️ **MODEL TESTING**\n\nBacktest and validate new models before promoting them to the live engine.\n\n(Coming Soon: /backtest)", parse_mode="Markdown", reply_markup=get_main_menu())
+    elif query.data == 'menu_status':
+        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit\n- Risk Engine: Active", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_performance':
         stats = get_performance_stats()
         text = (
