@@ -131,8 +131,15 @@ async def run_analysis(message, symbol, timeframe):
             model_name, display_tf = res['engine'], res['timeframe']
         else:
             safe_symbol = symbol.replace("=", "_")
-            model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
+            
+            # Try the new H1 models first (Crypto)
+            model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
             model_path = MODEL_DIR / model_name
+            
+            # If H1 doesn't exist, fallback to H10 (Forex)
+            if not model_path.exists():
+                model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
+                model_path = MODEL_DIR / model_name
             
             model = get_model(model_path)
             if not model:

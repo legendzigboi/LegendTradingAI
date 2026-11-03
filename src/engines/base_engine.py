@@ -15,9 +15,16 @@ class BaseEngine:
     def analyze(self, symbol, timeframe=None):
         tf = timeframe or self.default_timeframe
         safe_symbol = symbol.replace("=", "_")
-        model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
+        
+        # Try the new H1 models first (Crypto)
+        model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
         model_path = MODEL_DIR / model_name
         
+        # If H1 doesn't exist, fallback to H10 (Forex)
+        if not model_path.exists():
+            model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
+            model_path = MODEL_DIR / model_name
+
         model = get_model(model_path)
         if not model:
             return {"error": f"Model {model_name} missing or failed to load"}
@@ -26,13 +33,13 @@ class BaseEngine:
             feats, _ = get_latest_features(symbol, tf)
             candles = fetch_klines(symbol, tf, limit=2)
             entry_price = float(candles[-2][4])
-            atr_14 = feats[18] 
+            atr_14 = feats[18]
 
             proba = model.predict_proba([feats])[0]
-            
+
             direction = "LONG" if proba > 0.5 else "SHORT"
             confidence = proba if proba > 0.5 else (1 - proba)
-            
+
             plan = build_trade_plan(entry_price, direction, atr_14, tf)
 
             return {
