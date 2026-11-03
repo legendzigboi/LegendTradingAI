@@ -22,6 +22,10 @@ def get_crypto_menu():
     keyboard = [
         [InlineKeyboardButton("BTC/USDT", callback_data='pair_BTCUSDT'),
          InlineKeyboardButton("ETH/USDT", callback_data='pair_ETHUSDT')],
+        [InlineKeyboardButton("SOL/USDT", callback_data='pair_SOLUSDT'),
+         InlineKeyboardButton("XRP/USDT", callback_data='pair_XRPUSDT')],
+        [InlineKeyboardButton("BNB/USDT", callback_data='pair_BNBUSDT'),
+         InlineKeyboardButton("DOGE/USDT", callback_data='pair_DOGEUSDT')],
         [InlineKeyboardButton("⬅️ Back", callback_data='menu_market')]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -39,7 +43,6 @@ def get_forex_menu():
     return InlineKeyboardMarkup(keyboard)
 
 def get_timeframe_menu(symbol):
-    """Now includes ALL timeframes PLUS the Fusion Engine."""
     keyboard = [
         [InlineKeyboardButton("⚡ FUSION (Auto-AI)", callback_data=f'tf_FUSION_{symbol}')],
         [InlineKeyboardButton("1m", callback_data=f'tf_1m_{symbol}'),
