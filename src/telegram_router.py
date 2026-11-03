@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from telegram import Update, BotCommand
 from telegram.ext import ContextTypes
 from src.config import env
-from src.signal_db import init_db, log_signal, get_pending_trades, get_performance_stats
+from src.signal_db import init_db, log_signal, get_pending_trades, get_performance_stats, get_all_insights
 from src.live_features import get_latest_features, fetch_klines
 from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
@@ -19,6 +19,7 @@ from src.technical_analyst import get_technical_overview
 from src.signal_scanner import scan_markets
 from src.telegram_keyboards import get_main_menu, get_market_menu, get_crypto_menu, get_forex_menu, get_timeframe_menu
 from src.engines.fusion_engine import FusionEngine
+from src.research_engine import run_research_lab
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,12 +46,8 @@ def restricted(func):
         return await func(update, context, *args, **kwargs)
     return wrapped
 
-# 🚨 ONLY /start IN THE BLUE MENU 🚨
 async def post_init(application) -> None:
-    commands = [
-        BotCommand("start", "Open Main Menu")
-    ]
-    await application.bot.set_my_commands(commands)
+    await application.bot.set_my_commands([BotCommand("start", "Open Main Menu")])
 
 @restricted
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -240,10 +237,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_pause':
         set_pause(True)
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
+        
+    # 🚨 CONNECTING THE RESEARCH LAB BUTTON 🚨
     elif query.data == 'menu_research':
-        await query.edit_message_text("🔬 **RESEARCH LAB**\n\nThis module will analyze historical data, news, and economic events to find patterns.\n\n(Coming Soon: /research <symbol>)", parse_mode="Markdown", reply_markup=get_main_menu())
+        await query.edit_message_text("🔬 Running Research Lab... Scanning database for patterns.", reply_markup=get_main_menu())
+        result = await asyncio.to_thread(run_research_lab)
+        await context.bot.send_message(chat_id=query.message.chat_id, text=result, reply_markup=get_main_menu())
+        
+    # 🚨 CONNECTING THE AI MEMORY BUTTON 🚨
     elif query.data == 'menu_memory':
-        await query.edit_message_text("🧠 **AI MEMORY**\n\nHere you will see what patterns the bot has discovered and validated over time.\n\n(Coming Soon: /insights)", parse_mode="Markdown", reply_markup=get_main_menu())
+        insights = get_all_insights()
+        if not insights:
+            text = "🧠 **AI MEMORY IS EMPTY**\n\nNo patterns discovered yet. Run the Research Lab or wait for more trades to close."
+        else:
+            text = "🧠 **AI MEMORY (RECENT DISCOVERIES)**\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            for i in insights:
+                emoji = "🔥" if i['category'] == "EDGE" else ("⚠️" if i['category'] == "WARNING" else "📊")
+                text += f"{emoji} {i['insight']}\n*(Sample Size: {i['sample_size']})*\n\n"
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_main_menu())
+        
     elif query.data == 'menu_testing':
         await query.edit_message_text("⚙️ **MODEL TESTING**\n\nBacktest and validate new models before promoting them to the live engine.\n\n(Coming Soon: /backtest)", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_status':
