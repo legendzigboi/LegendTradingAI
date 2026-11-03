@@ -1,6 +1,6 @@
 import math
-from datetime import datetime, timezone
 import requests
+from datetime import datetime, timezone
 from src.forex_fetcher import fetch_forex_klines
 
 BINANCE = "https://data-api.binance.vision"
@@ -16,13 +16,21 @@ FEATURE_NAMES = [
 
 def fetch_klines(symbol, interval="1h", limit=300):
     # THE SMART ROUTER
-    if "=" in symbol or symbol in ["GC=F", "CL=F", "^GSPC"]: 
+    if "=" in symbol or symbol in ["GC=F", "CL=F", "^GSPC"]:
         return fetch_forex_klines(symbol, interval, limit)
-    
+
     # Default to Binance (Crypto)
-    r = requests.get(BINANCE + KLINES, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.get(BINANCE + KLINES, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=15)
+        if r.status_code != 200:
+            raise ValueError(f"Binance HTTP Error {r.status_code}: {r.text[:100]}")
+            
+        data = r.json()
+        if isinstance(data, dict) and "code" in data:
+            raise ValueError(f"Binance API Error: {data.get('msg')}")
+        return data
+    except Exception as e:
+        raise Exception(f"Failed to fetch Binance data: {str(e)}")
 
 def _ema(values, span):
     if not values: return []
@@ -103,7 +111,7 @@ def compute_features(candles):
 
     ts = datetime.fromtimestamp(times_ms[-1] / 1000, tz=timezone.utc)
     hour = ts.hour; dow = ts.weekday()
-    
+
     features = [
         ret1, ret5, ret20, rng, body, upper_wick, lower_wick,
         sma_ratio_20, sma_ratio_50, sma_ratio_200, ema_ratio_9_21, ema_ratio_21_50,

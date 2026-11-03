@@ -38,7 +38,7 @@ def restricted(func):
         if update:
             user_id = update.effective_user.id if update.effective_user else None
             if user_id not in AUTHORIZED_USER_IDS:
-                if update.message: await update.message.reply_text("⛔ Unauthorized.")
+                if update.message: await update.message.reply_text("⛔ Unauthorized.", parse_mode=None)
                 elif update.callback_query: await update.callback_query.answer("⛔ Unauthorized", show_alert=True)
                 return
         return await func(update, context, *args, **kwargs)
@@ -94,7 +94,6 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Target: {format_price(res['plan']['tp1'])}\n"
         )
         
-        # BULLETPROOF IMAGE LOGIC FOR SCANNER
         try:
             static_img = "buy.png" if res['direction'] == "LONG" else "sell.png"
             if os.path.exists(static_img):
@@ -115,11 +114,15 @@ async def run_analysis(message, symbol, timeframe):
     try:
         if timeframe == 'FUSION':
             engine = FusionEngine()
-            res = await asyncio.to_thread(engine.analyze, symbol)
+            try:
+                res = await asyncio.wait_for(asyncio.to_thread(engine.analyze, symbol), timeout=20.0)
+            except asyncio.TimeoutError:
+                await message.reply_text("❌ Error: Fusion Engine timed out.", parse_mode=None); return
+                
             if "error" in res:
-                await message.reply_text(f"❌ Error: {res['error']}"); return
+                await message.reply_text(f"❌ Error: {res['error']}", parse_mode=None); return
             if res.get("status") == "NO_TRADE":
-                await message.reply_text(f"⚪ NO TRADE\n{res['reason']}"); return
+                await message.reply_text(f"⚪ NO TRADE\n{res['reason']}", parse_mode=None); return
             feats, direction, confidence, plan = res['features'], res['direction'], res['confidence'], res['plan']
             model_name, display_tf = res['engine'], res['timeframe']
         else:
@@ -133,10 +136,14 @@ async def run_analysis(message, symbol, timeframe):
             
             model = get_model(model_path)
             if not model:
-                await message.reply_text(f"❌ Error: Model `{model_name}` not found."); return
+                await message.reply_text(f"❌ Error: Model `{model_name}` not found.", parse_mode=None); return
 
-            feats, ts_ms = await asyncio.to_thread(get_latest_features, symbol, timeframe)
-            candles = await asyncio.to_thread(fetch_klines, symbol, timeframe, 2)
+            try:
+                feats, ts_ms = await asyncio.wait_for(asyncio.to_thread(get_latest_features, symbol, timeframe), timeout=15.0)
+                candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, timeframe, 2), timeout=10.0)
+            except asyncio.TimeoutError:
+                await message.reply_text("❌ Error: Data fetch timed out. Binance API might be blocked or slow.", parse_mode=None); return
+            
             entry_price = float(candles[-2][4])
             atr_14 = feats[18] 
             proba = model.predict_proba([feats])[0]
@@ -178,29 +185,21 @@ async def run_analysis(message, symbol, timeframe):
         
         await message.reply_text("⏳ Generating complete signal...")
 
-        # BULLETPROOF IMAGE LOGIC
         try:
-            # 1. Default to static images
             static_img = "buy.png" if direction == "LONG" else "sell.png"
             final_img = static_img
 
-            # 2. Try to generate dynamic chart, but don't wait more than 5 seconds
             try:
-                chart_file = await asyncio.wait_for(
-                    asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction),
-                    timeout=5.0
-                )
+                chart_file = await asyncio.wait_for(asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction), timeout=5.0)
                 if chart_file and os.path.exists(chart_file):
                     final_img = chart_file
             except Exception as chart_err:
                 logger.warning(f"Chart generation skipped/timed out: {chart_err}")
 
-            # 3. Send the image (dynamic if it worked, static if it didn't)
             if os.path.exists(final_img):
                 with open(final_img, "rb") as f:
                     await message.reply_photo(photo=f, caption=msg)
             else:
-                # If even the static image is missing, just send text
                 await message.reply_text(msg)
                 
         except Exception as img_err:
@@ -208,7 +207,7 @@ async def run_analysis(message, symbol, timeframe):
             await message.reply_text(msg)
 
     except Exception as e:
-        await message.reply_text(f"❌ Error: {str(e)}")
+        await message.reply_text(f"❌ Error: {str(e)}", parse_mode=None)
 
 @restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
