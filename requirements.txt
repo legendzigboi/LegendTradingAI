@@ -4,3 +4,4 @@ PyYAML
 python-telegram-bot[job-queue]
 Flask
 Flask
+Pillow

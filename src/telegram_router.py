@@ -13,6 +13,7 @@ from src.trade_planner import build_trade_plan
 from src.risk_engine import check_circuit_breaker, set_pause
 from src.chart_generator import generate_chart
 from src.banner_generator import generate_banner
+from src.image_composer import combine_banner_and_chart
 from src.technical_analyst import get_technical_overview
 from src.telegram_keyboards import get_main_menu, get_market_menu, get_crypto_menu, get_forex_menu, get_timeframe_menu
 from src.engines.fusion_engine import FusionEngine
@@ -133,15 +134,17 @@ async def run_analysis(message, symbol, timeframe):
             f"ID: {sig_id}"
         )
         
+        # Generate Banner and Chart simultaneously
         banner_file = await asyncio.to_thread(generate_banner, direction)
-        if banner_file:
-            with open(banner_file, "rb") as f:
-                await message.reply_photo(photo=f)
-
         chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
-        if chart_file:
-            with open(chart_file, "rb") as f:
-                await message.reply_photo(photo=f, caption=msg)
+
+        if banner_file and chart_file:
+            combined_file = combine_banner_and_chart(banner_file, chart_file)
+            if combined_file:
+                with open(combined_file, "rb") as f:
+                    await message.reply_photo(photo=f, caption=msg)
+            else:
+                await message.reply_text(msg)
         else:
             await message.reply_text(msg)
 
