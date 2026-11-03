@@ -85,7 +85,7 @@ async def run_analysis(message, symbol, timeframe):
             direction = "LONG" if proba > 0.5 else "SHORT"
             confidence = proba if proba > 0.5 else (1 - proba)
             
-            # Pass the EXACT timeframe string so the planner matches the minutes
+            # EXACT EXPIRY
             plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
             display_tf = timeframe
 
@@ -119,9 +119,9 @@ async def run_analysis(message, symbol, timeframe):
             f"ID: {sig_id}"
         )
         
-        await message.reply_text("⏳ Generating chart and signal...")
+        await message.reply_text("⏳ Generating complete signal...")
 
-        # Generate both images
+        # Generate both images (banner is instant, chart takes a few seconds)
         banner_file = await asyncio.to_thread(generate_banner, direction)
         chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
 
