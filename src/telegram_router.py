@@ -15,6 +15,7 @@ from src.chart_generator import generate_chart
 from src.banner_generator import generate_banner
 from src.image_composer import combine_banner_and_chart
 from src.technical_analyst import get_technical_overview
+from src.signal_scanner import scan_markets
 from src.telegram_keyboards import get_main_menu, get_market_menu, get_crypto_menu, get_forex_menu, get_timeframe_menu
 from src.engines.fusion_engine import FusionEngine
 
@@ -50,6 +51,57 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
     text = "🤖 LEGEND TRADING AI PREMIUM\n━━━━━━━━━━━━━━━━━━━━\nWelcome. Select an option below:"
     await update.message.reply_text(text, reply_markup=get_main_menu())
+
+@restricted
+async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id if update else AUTHORIZED_USER_IDS[0]
+    
+    if update and getattr(update, 'message', None):
+        await update.message.reply_text("🔍 Scanning all markets for PREMIUM setups...")
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="⏰ SCHEDULED SCAN: Scanning markets...")
+    
+    results = await asyncio.to_thread(scan_markets, min_confidence=0.64)
+    
+    if not results:
+        await context.bot.send_message(chat_id=chat_id, text="⚪ NO PREMIUM TRADE\nNo setups passed the strict filters right now.")
+        return
+
+    for res in results[:2]:
+        start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        duration = res['plan']['duration_min']
+        quality = "🔥 STRONG" if res['confidence'] >= 0.70 else "⚡ MODERATE"
+        
+        msg = (
+            f"🤖 LEGEND TRADING AI\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"PAPER MODE\n\n"
+            f"{'🟢 BUY ▲' if res['direction'] == 'LONG' else '🔴 SELL ▼'}\n"
+            f"{res['symbol']} · {res['timeframe']}\n\n"
+            f"⏱ EXPIRY: {duration} minutes\n"
+            f"Start: {start_str}\n"
+            f"End: {end_str}\n\n"
+            f"📊 CONFIDENCE\n"
+            f"{res['confidence']*100:.1f}% ({quality})\n\n"
+            f"🎯 TRADE PLAN\n"
+            f"Entry: {format_price(res['plan']['entry'])}\n"
+            f"SL: {format_price(res['plan']['stop_loss'])}\n"
+            f"Target: {format_price(res['plan']['tp1'])}\n"
+        )
+        
+        banner_file = await asyncio.to_thread(generate_banner, res['direction'])
+        chart_file = await asyncio.to_thread(generate_chart, res['symbol'], res['timeframe'], res['plan'], res['direction'])
+        
+        if banner_file and chart_file:
+            combined_file = combine_banner_and_chart(banner_file, chart_file)
+            if combined_file:
+                with open(combined_file, "rb") as f:
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=msg)
 
 async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
@@ -134,7 +186,6 @@ async def run_analysis(message, symbol, timeframe):
             f"ID: {sig_id}"
         )
         
-        # Generate Banner and Chart simultaneously
         banner_file = await asyncio.to_thread(generate_banner, direction)
         chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
 
@@ -164,6 +215,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🪙 SELECT CRYPTO PAIR:", reply_markup=get_crypto_menu())
     elif query.data == 'market_forex':
         await query.edit_message_text("💱 SELECT FOREX PAIR:", reply_markup=get_forex_menu())
+    elif query.data == 'menu_signals':
+        await query.edit_message_text("🔍 Running auto-scan...")
+        await signals_command(update, context)
     elif query.data == 'menu_pause':
         set_pause(True)
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
@@ -175,6 +229,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Total Closed: {stats['total_closed']}\n"
             f"✅ Wins: {stats['wins']}\n"
             f"❌ Losses: {stats['losses']}\n"
+            f"⏱ Expired: {stats['expired']}\n"
             f"🏆 Win Rate: {stats['win_rate']:.1f}%\n"
             f"⏳ Pending: {stats['pending']}"
         )
