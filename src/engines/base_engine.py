@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from src.live_features import get_latest_features, fetch_klines
-from src.xgb_pure import XGBPure
+from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
 
 logger = logging.getLogger(__name__)
@@ -18,8 +18,9 @@ class BaseEngine:
         model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
         model_path = MODEL_DIR / model_name
         
-        if not model_path.exists():
-            return {"error": f"Model {model_name} missing"}
+        model = get_model(model_path)
+        if not model:
+            return {"error": f"Model {model_name} missing or failed to load"}
 
         try:
             feats, _ = get_latest_features(symbol, tf)
@@ -27,7 +28,6 @@ class BaseEngine:
             entry_price = float(candles[-2][4])
             atr_14 = feats[18] 
 
-            model = XGBPure(model_path)
             proba = model.predict_proba([feats])[0]
             
             direction = "LONG" if proba > 0.5 else "SHORT"
