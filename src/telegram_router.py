@@ -52,6 +52,57 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🤖 LEGEND TRADING AI PREMIUM\n━━━━━━━━━━━━━━━━━━━━\nWelcome. Select an option below:"
     await update.message.reply_text(text, reply_markup=get_main_menu())
 
+@restricted
+async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id if update else AUTHORIZED_USER_IDS[0]
+    
+    if update and getattr(update, 'message', None):
+        await update.message.reply_text("🔍 Scanning all markets for PREMIUM setups...")
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="⏰ SCHEDULED SCAN: Scanning markets...")
+    
+    results = await asyncio.to_thread(scan_markets, min_confidence=0.64)
+    
+    if not results:
+        await context.bot.send_message(chat_id=chat_id, text="⚪ NO PREMIUM TRADE\nNo setups passed the strict filters right now.")
+        return
+
+    for res in results[:2]:
+        start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        duration = res['plan']['duration_min']
+        quality = "🔥 STRONG" if res['confidence'] >= 0.70 else "⚡ MODERATE"
+        
+        msg = (
+            f"🤖 LEGEND TRADING AI\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"PAPER MODE\n\n"
+            f"{'🟢 BUY ▲' if res['direction'] == 'LONG' else '🔴 SELL ▼'}\n"
+            f"{res['symbol']} · {res['timeframe']}\n\n"
+            f"⏱ EXPIRY: {duration} minutes\n"
+            f"Start: {start_str}\n"
+            f"End: {end_str}\n\n"
+            f"📊 CONFIDENCE\n"
+            f"{res['confidence']*100:.1f}% ({quality})\n\n"
+            f"🎯 TRADE PLAN\n"
+            f"Entry: {format_price(res['plan']['entry'])}\n"
+            f"SL: {format_price(res['plan']['stop_loss'])}\n"
+            f"Target: {format_price(res['plan']['tp1'])}\n"
+        )
+        
+        banner_file = await asyncio.to_thread(generate_banner, res['direction'])
+        chart_file = await asyncio.to_thread(generate_chart, res['symbol'], res['timeframe'], res['plan'], res['direction'])
+        
+        if banner_file and chart_file:
+            combined_file = combine_banner_and_chart(banner_file, chart_file)
+            if combined_file:
+                with open(combined_file, "rb") as f:
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=msg)
+
 async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
     if not allowed:
@@ -85,7 +136,6 @@ async def run_analysis(message, symbol, timeframe):
             direction = "LONG" if proba > 0.5 else "SHORT"
             confidence = proba if proba > 0.5 else (1 - proba)
             
-            # EXACT EXPIRY
             plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
             display_tf = timeframe
 
@@ -121,11 +171,9 @@ async def run_analysis(message, symbol, timeframe):
         
         await message.reply_text("⏳ Generating complete signal...")
 
-        # Generate both images (banner is instant, chart takes a few seconds)
         banner_file = await asyncio.to_thread(generate_banner, direction)
         chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
 
-        # Send them together as one Photo with the caption
         if banner_file and chart_file:
             combined_file = combine_banner_and_chart(banner_file, chart_file)
             if combined_file:
