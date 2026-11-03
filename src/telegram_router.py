@@ -52,56 +52,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🤖 LEGEND TRADING AI PREMIUM\n━━━━━━━━━━━━━━━━━━━━\nWelcome. Select an option below:"
     await update.message.reply_text(text, reply_markup=get_main_menu())
 
-@restricted
-async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id if update else AUTHORIZED_USER_IDS[0]
-    
-    if update and getattr(update, 'message', None):
-        await update.message.reply_text("🔍 Scanning all markets for PREMIUM setups...")
-    else:
-        await context.bot.send_message(chat_id=chat_id, text="⏰ SCHEDULED SCAN: Scanning markets...")
-    
-    results = await asyncio.to_thread(scan_markets, min_confidence=0.64)
-    
-    if not results:
-        await context.bot.send_message(chat_id=chat_id, text="⚪ NO PREMIUM TRADE\nNo setups passed the strict filters right now.")
-        return
-
-    for res in results[:2]:
-        start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
-        end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
-        duration = res['plan']['duration_min']
-        quality = "🔥 STRONG" if res['confidence'] >= 0.70 else "⚡ MODERATE"
-        
-        msg = (
-            f"🤖 LEGEND TRADING AI\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"PAPER MODE\n\n"
-            f"{'🟢 BUY ▲' if res['direction'] == 'LONG' else '🔴 SELL ▼'}\n"
-            f"{res['symbol']} · {res['timeframe']}\n\n"
-            f"⏱ EXPIRY: {duration} minutes\n"
-            f"Start: {start_str}\n"
-            f"End: {end_str}\n\n"
-            f"📊 CONFIDENCE\n"
-            f"{res['confidence']*100:.1f}% ({quality})\n\n"
-            f"🎯 TRADE PLAN\n"
-            f"Entry: {format_price(res['plan']['entry'])}\n"
-            f"SL: {format_price(res['plan']['stop_loss'])}\n"
-            f"Target: {format_price(res['plan']['tp1'])}\n"
-        )
-        
-        banner_file = await asyncio.to_thread(generate_banner, res['direction'])
-        chart_file = await asyncio.to_thread(generate_chart, res['symbol'], res['timeframe'], res['plan'], res['direction'])
-        
+async def send_chart_async(bot, chat_id, symbol, timeframe, plan, direction):
+    """Generates and sends the image in the background."""
+    try:
+        banner_file = await asyncio.to_thread(generate_banner, direction)
+        chart_file = await asyncio.to_thread(generate_chart, symbol, timeframe, plan, direction)
         if banner_file and chart_file:
             combined_file = combine_banner_and_chart(banner_file, chart_file)
             if combined_file:
                 with open(combined_file, "rb") as f:
-                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
-            else:
-                await context.bot.send_message(chat_id=chat_id, text=msg)
-        else:
-            await context.bot.send_message(chat_id=chat_id, text=msg)
+                    await bot.send_photo(chat_id=chat_id, photo=f)
+    except Exception as e:
+        logger.error(f"Failed to send chart: {e}")
 
 async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
@@ -113,20 +75,12 @@ async def run_analysis(message, symbol, timeframe):
         if timeframe == 'FUSION':
             engine = FusionEngine()
             res = await asyncio.to_thread(engine.analyze, symbol)
-            
             if "error" in res:
-                await message.reply_text(f"❌ Error: {res['error']}")
-                return
+                await message.reply_text(f"❌ Error: {res['error']}"); return
             if res.get("status") == "NO_TRADE":
-                await message.reply_text(f"⚪ NO TRADE\n{res['reason']}")
-                return
-                
-            feats = res['features']
-            direction = res['direction']
-            confidence = res['confidence']
-            plan = res['plan']
-            model_name = res['engine']
-            display_tf = res['timeframe']
+                await message.reply_text(f"⚪ NO TRADE\n{res['reason']}"); return
+            feats, direction, confidence, plan = res['features'], res['direction'], res['confidence'], res['plan']
+            model_name, display_tf = res['engine'], res['timeframe']
         else:
             safe_symbol = symbol.replace("=", "_")
             model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
@@ -134,30 +88,20 @@ async def run_analysis(message, symbol, timeframe):
             
             model = get_model(model_path)
             if not model:
-                await message.reply_text(f"❌ Error: Model `{model_name}` not found.")
-                return
+                await message.reply_text(f"❌ Error: Model `{model_name}` not found."); return
 
             feats, ts_ms = await asyncio.to_thread(get_latest_features, symbol, timeframe)
             candles = await asyncio.to_thread(fetch_klines, symbol, timeframe, 2)
             entry_price = float(candles[-2][4])
             atr_14 = feats[18] 
-
             proba = model.predict_proba([feats])[0]
-            
             direction = "LONG" if proba > 0.5 else "SHORT"
             confidence = proba if proba > 0.5 else (1 - proba)
-            
             plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
             display_tf = timeframe
 
         tech_overview = get_technical_overview(feats, direction, display_tf)
-        
-        sig_id = log_signal(
-            symbol=symbol, timeframe=display_tf, direction=direction,
-            model_version=model_name, confidence=float(confidence),
-            entry_price=plan["entry"], stop_loss=plan["stop_loss"],
-            tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0)
-        )
+        sig_id = log_signal(symbol=symbol, timeframe=display_tf, direction=direction, model_version=model_name, confidence=float(confidence), entry_price=plan["entry"], stop_loss=plan["stop_loss"], tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0))
         
         signal_time = datetime.now(tz=WAT).strftime('%I:%M:%S %p WAT')
         start_str = plan['start_time'].astimezone(WAT).strftime('%I:%M:%S %p WAT')
@@ -186,18 +130,12 @@ async def run_analysis(message, symbol, timeframe):
             f"ID: {sig_id}"
         )
         
-        banner_file = await asyncio.to_thread(generate_banner, direction)
-        chart_file = await asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction)
-
-        if banner_file and chart_file:
-            combined_file = combine_banner_and_chart(banner_file, chart_file)
-            if combined_file:
-                with open(combined_file, "rb") as f:
-                    await message.reply_photo(photo=f, caption=msg)
-            else:
-                await message.reply_text(msg)
-        else:
-            await message.reply_text(msg)
+        # 1. INSTANTLY SEND TEXT
+        await message.reply_text(msg)
+        
+        # 2. SEND CHART IN BACKGROUND
+        chat_id = message.chat.id
+        asyncio.create_task(send_chart_async(message.get_bot(), chat_id, symbol, display_tf, plan, direction))
 
     except Exception as e:
         await message.reply_text(f"❌ Error: {str(e)}")
@@ -215,9 +153,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🪙 SELECT CRYPTO PAIR:", reply_markup=get_crypto_menu())
     elif query.data == 'market_forex':
         await query.edit_message_text("💱 SELECT FOREX PAIR:", reply_markup=get_forex_menu())
-    elif query.data == 'menu_signals':
-        await query.edit_message_text("🔍 Running auto-scan...")
-        await signals_command(update, context)
     elif query.data == 'menu_pause':
         set_pause(True)
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())

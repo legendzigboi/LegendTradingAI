@@ -60,7 +60,8 @@ def get_performance_stats():
         expired = conn.execute("SELECT COUNT(*) FROM signals WHERE status = 'EXPIRED'").fetchone()[0]
         pending = conn.execute("SELECT COUNT(*) FROM signals WHERE status = 'PENDING'").fetchone()[0]
         
-        total_closed = wins + losses
+        # FIX: Include expired trades in the total!
+        total_closed = wins + losses + expired
         win_rate = (wins / total_closed * 100) if total_closed > 0 else 0
         
         return {
