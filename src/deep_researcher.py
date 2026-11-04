@@ -1,14 +1,14 @@
 import os
 import logging
 from openai import OpenAI
-from src.sentiment_engine import get_market_sentiment
 
 logger = logging.getLogger(__name__)
 
 # Groq uses the OpenAI format but has a different base URL
 client = OpenAI(
     api_key=os.environ.get("GROQ_API_KEY", ""),
-    base_url="https://api.groq.com/openai/v1"
+    base_url="https://api.groq.com/openai/v1",
+    timeout=5.0 # 🚨 STRICT TIMEOUT 🚨
 )
 
 def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reason):
@@ -56,4 +56,4 @@ def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reas
             
     except Exception as e:
         logger.error(f"Deep Researcher Error: {e}")
-        return True, "AI Error, falling back to normal execution."
+        return True, "AI Timeout/Error, falling back to normal execution."
