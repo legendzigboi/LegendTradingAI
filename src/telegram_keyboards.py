@@ -15,9 +15,10 @@ def get_main_menu():
 
 def get_market_menu():
     keyboard = [
-        [InlineKeyboardButton("🪙 Crypto (Binance)", callback_data='market_crypto')],
-        [InlineKeyboardButton("💱 Forex (Real)", callback_data='market_forex')],
-        [InlineKeyboardButton("🎰 OTC (Pocket Option)", callback_data='market_otc')],
+        [InlineKeyboardButton("🪙 Crypto", callback_data='market_crypto'),
+         InlineKeyboardButton("💱 Forex", callback_data='market_forex')],
+        [InlineKeyboardButton("📈 Stocks", callback_data='market_stocks'),
+         InlineKeyboardButton("📊 Indices & Metals", callback_data='market_indices')],
         [InlineKeyboardButton("⬅️ Back", callback_data='menu_main')]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -40,8 +41,26 @@ def get_forex_menu():
          InlineKeyboardButton("GBP/USD", callback_data='pair_GBPUSD=X')],
         [InlineKeyboardButton("USD/JPY", callback_data='pair_USDJPY=X'),
          InlineKeyboardButton("AUD/USD", callback_data='pair_AUDUSD=X')],
-        [InlineKeyboardButton("USD/CAD", callback_data='pair_USDCAD=X'),
-         InlineKeyboardButton("GOLD (XAUUSD)", callback_data='pair_GC=F')],
+        [InlineKeyboardButton("USD/CAD", callback_data='pair_USDCAD=X')],
+        [InlineKeyboardButton("⬅️ Back", callback_data='menu_market')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_stocks_menu():
+    keyboard = [
+        [InlineKeyboardButton("Apple (AAPL)", callback_data='pair_AAPL'),
+         InlineKeyboardButton("Tesla (TSLA)", callback_data='pair_TSLA')],
+        [InlineKeyboardButton("Nvidia (NVDA)", callback_data='pair_NVDA'),
+         InlineKeyboardButton("Amazon (AMZN)", callback_data='pair_AMZN')],
+        [InlineKeyboardButton("⬅️ Back", callback_data='menu_market')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_indices_menu():
+    keyboard = [
+        [InlineKeyboardButton("GOLD (XAUUSD)", callback_data='pair_GC=F'),
+         InlineKeyboardButton("US100 (Nasdaq)", callback_data='pair_NDX')],
+        [InlineKeyboardButton("SPX (S&P500)", callback_data='pair_GSPC')],
         [InlineKeyboardButton("⬅️ Back", callback_data='menu_market')]
     ]
     return InlineKeyboardMarkup(keyboard)
