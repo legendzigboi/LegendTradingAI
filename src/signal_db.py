@@ -1,7 +1,7 @@
 import os
 import psycopg2
 import psycopg2.extras
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (
@@ -98,7 +98,6 @@ def update_stop_loss(trade_id, new_sl):
     finally:
         conn.close()
 
-# ... (Include get_performance_stats, save_insight, etc. from previous version)
 def get_performance_stats():
     conn = _connect()
     try:
@@ -119,6 +118,23 @@ def get_performance_stats():
     finally:
         conn.close()
 
+# 🚨 NEW: DAILY DRAWDOWN CHECK 🚨
+def get_daily_pnl():
+    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT SUM(actual_return) FROM signals 
+                WHERE status IN ('WIN', 'LOSS') 
+                AND ts LIKE %s
+            """, (f"{today}%",))
+            result = cur.fetchone()[0]
+            return result if result else 0.0
+    finally:
+        conn.close()
+
+# ... (keep save_insight, get_all_insights, get_all_closed_signals as they were)
 def save_insight(category, insight, win_rate, sample_size):
     ts = datetime.now(tz=timezone.utc).isoformat()
     conn = _connect()

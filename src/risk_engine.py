@@ -1,42 +1,22 @@
-"""
-Risk Engine & Circuit Breaker
-Prevents the bot from trading if daily drawdown exceeds 3%.
-"""
 from datetime import datetime, timezone
-from src.signal_db import _connect
+from src.signal_db import get_daily_pnl
 
 SYSTEM_PAUSED = False
+MAX_DAILY_DRAWDOWN = -0.03 # -3%
 
 def check_circuit_breaker():
     """Returns True if trading is allowed, False if halted."""
     global SYSTEM_PAUSED
 
     if SYSTEM_PAUSED:
-        return False, "⛔ Circuit Breaker is ACTIVE. Use /resume to override."
+        return False, "⛔ Risk Officer: System manually PAUSED."
 
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-
-    conn = _connect()
-    try:
-        with conn.cursor() as cur:
-            # Sum the PnL of all closed trades today (Using %s for Postgres)
-            cur.execute("""
-                SELECT SUM(actual_return), COUNT(*)
-                FROM signals
-                WHERE status IN ('WIN', 'LOSS')
-                AND ts LIKE %s
-            """, (f"{today}%",))
-            
-            row = cur.fetchone()
-
-        # psycopg2 fetchone() returns a tuple. row[0] is the SUM, row[1] is the COUNT.
-        daily_pnl = row[0] if row and row[0] is not None else 0.0
-    finally:
-        conn.close()
-
-    if daily_pnl <= -0.03:
+    # 🚨 INDEPENDENT RISK ENGINE CHECK 🚨
+    daily_pnl = get_daily_pnl()
+    
+    if daily_pnl <= MAX_DAILY_DRAWDOWN:
         SYSTEM_PAUSED = True
-        return False, f"🔴 CIRCUIT BREAKER TRIPPED: Daily drawdown hit {daily_pnl*100:.2f}%. Trading halted."
+        return False, f"🔴 RISK OFFICER TRIGGERED: Daily drawdown hit {daily_pnl*100:.2f}%. Trading halted for the day to protect capital."
 
     return True, f"✅ Risk Check Passed. Today's PnL: {daily_pnl*100:.2f}%"
 
