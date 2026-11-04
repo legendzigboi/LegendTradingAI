@@ -34,6 +34,9 @@ MIN_ATR_CRYPTO = 0.0015
 MIN_ATR_FOREX = 0.0003  
 WAT = timezone(timedelta(hours=1))
 
+# 🚨 THE LOCK 🚨
+analysis_lock = asyncio.Lock()
+
 def format_price(price):
     if price >= 1000: return f"{price:,.2f}"
     elif price >= 1: return f"{price:.4f}"
@@ -65,8 +68,65 @@ async def scheduled_scan_job(context):
 
 @restricted
 async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # (Same as before, omitted for brevity)
-    pass
+    chat_id = update.effective_chat.id if update else AUTHORIZED_USER_IDS[0]
+    
+    if update and getattr(update, 'message', None):
+        await update.message.reply_text("🔍 Scanning all markets for PREMIUM setups...")
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="⏰ SCHEDULED SCAN: Scanning markets...")
+    
+    results = await asyncio.to_thread(scan_markets, min_confidence=MIN_CONFIDENCE)
+    
+    if not results:
+        await context.bot.send_message(chat_id=chat_id, text="⚪ NO PREMIUM TRADE\nNo setups passed the strict filters right now.")
+        return
+
+    for res in results[:2]:
+        is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, res['symbol'])
+        if not is_safe:
+            await context.bot.send_message(chat_id=chat_id, text=f"⛔ TRADE BLOCKED: {news_warning}")
+            continue
+
+        sentiment, sentiment_reason = await asyncio.to_thread(get_market_sentiment, res['symbol'])
+        research_approved, research_reason = await asyncio.to_thread(
+            deep_research_trade, res['symbol'], res['direction'], res['confidence'], sentiment, sentiment_reason
+        )
+        if not research_approved:
+            await context.bot.send_message(chat_id=chat_id, text=f"🧠 **DEEP RESEARCH VETO**\n\n{research_reason}", parse_mode="Markdown")
+            continue
+
+        start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        duration = res['plan']['duration_min']
+        quality = "🔥 STRONG" if res['confidence'] >= 0.70 else "⚡ MODERATE"
+        
+        msg = (
+            f"🤖 LEGEND TRADING AI\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"PAPER MODE\n\n"
+            f"{'🟢 BUY ▲' if res['direction'] == 'LONG' else '🔴 SELL ▼'}\n"
+            f"{res['symbol']} · {res['timeframe']}\n\n"
+            f"⏱ EXPIRY: {duration} minutes\n"
+            f"Start: {start_str}\n"
+            f"End: {end_str}\n\n"
+            f"📊 CONFIDENCE\n"
+            f"{res['confidence']*100:.1f}% ({quality})\n\n"
+            f"🎯 TRADE PLAN\n"
+            f"Entry: {format_price(res['plan']['entry'])}\n"
+            f"SL: {format_price(res['plan']['stop_loss'])}\n"
+            f"Target: {format_price(res['plan']['tp1'])}\n"
+        )
+        
+        try:
+            static_img = "buy.png" if res['direction'] == "LONG" else "sell.png"
+            if os.path.exists(static_img):
+                with open(static_img, "rb") as f:
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+        except Exception as e:
+            logger.error(f"Scanner image error: {e}")
+            await context.bot.send_message(chat_id=chat_id, text=msg)
 
 async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
@@ -148,7 +208,6 @@ async def run_analysis(message, symbol, timeframe):
             await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to SELL, but News Sentiment is BULLISH.\n{sentiment_reason}", parse_mode="Markdown")
             return
 
-        # 🚨 DEEP RESEARCHER CHECK WITH TIMEOUT 🚨
         await message.reply_text("🧠 Running Deep Research (LLM Analysis)...")
         try:
             research_approved, research_reason = await asyncio.wait_for(
@@ -226,5 +285,67 @@ async def run_analysis(message, symbol, timeframe):
 
 @restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # (Same as before, omitted for brevity)
-    pass
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'menu_main':
+        await query.edit_message_text("🤖 MAIN MENU\nSelect an option:", reply_markup=get_main_menu())
+    elif query.data == 'menu_market':
+        await query.edit_message_text("💹 SELECT MARKET:", reply_markup=get_market_menu())
+    elif query.data == 'market_crypto':
+        await query.edit_message_text("🪙 SELECT CRYPTO PAIR:", reply_markup=get_crypto_menu())
+    elif query.data == 'market_forex':
+        await query.edit_message_text("💱 SELECT FOREX PAIR:", reply_markup=get_forex_menu())
+    elif query.data == 'market_stocks':
+        await query.edit_message_text("📈 SELECT STOCK:", reply_markup=get_stocks_menu())
+    elif query.data == 'market_indices':
+        await query.edit_message_text("📊 SELECT INDEX/METAL:", reply_markup=get_indices_menu())
+    elif query.data == 'menu_pause':
+        set_pause(True)
+        await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
+    elif query.data == 'menu_research':
+        await query.edit_message_text("🔬 Running Research Lab... Scanning database for patterns.", reply_markup=None)
+        result = await asyncio.to_thread(run_research_lab)
+        await query.edit_message_text(result, reply_markup=get_main_menu())
+    elif query.data == 'menu_memory':
+        insights = get_all_insights()
+        if not insights:
+            text = "🧠 **AI MEMORY IS EMPTY**\n\nNo patterns discovered yet. Run the Research Lab or wait for more trades to close."
+        else:
+            text = "🧠 **AI MEMORY (RECENT DISCOVERIES)**\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            for i in insights:
+                emoji = "🔥" if i['category'] == "EDGE" else ("⚠️" if i['category'] == "WARNING" else "📊")
+                text += f"{emoji} {i['insight']}\n*(Sample Size: {i['sample_size']})*\n\n"
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_main_menu())
+    elif query.data == 'menu_testing':
+        await query.edit_message_text("⚙️ **MODEL TESTING**\n\nBacktest and validate new models before promoting them to the live engine.\n\n(Coming Soon: /backtest)", parse_mode="Markdown", reply_markup=get_main_menu())
+    elif query.data == 'menu_status':
+        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit/Yahoo\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active\n- Deep Researcher (LLM): Active", parse_mode="Markdown", reply_markup=get_main_menu())
+    elif query.data == 'menu_performance':
+        stats = get_performance_stats()
+        text = (
+            f"📊 PERFORMANCE\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Total Closed: {stats['total_closed']}\n"
+            f"✅ Wins: {stats['wins']}\n"
+            f"❌ Losses: {stats['losses']}\n"
+            f"⏱ Expired: {stats['expired']}\n"
+            f"🏆 Win Rate: {stats['win_rate']:.1f}%\n"
+            f"⏳ Pending: {stats['pending']}"
+        )
+        await query.edit_message_text(text, reply_markup=get_main_menu())
+    elif query.data.startswith('pair_'):
+        symbol = query.data.split('_', 1)[1] 
+        await query.edit_message_text(f"⏱️ SELECT TIMEFRAME FOR {symbol}:", reply_markup=get_timeframe_menu(symbol))
+    elif query.data.startswith('tf_'):
+        # 🚨 CHECK THE LOCK BEFORE ANALYZING 🚨
+        if analysis_lock.locked():
+            await query.answer("⏳ The AI is already analyzing a trade. Please wait for it to finish.", show_alert=True)
+            return
+            
+        parts = query.data.split('_')
+        tf_type, symbol = parts[1], parts[2]
+        await query.edit_message_text(f"🔍 Analyzing {symbol} on {tf_type}...\nPlease wait.", reply_markup=None)
+        
+        async with analysis_lock:
+            await run_analysis(query.message, symbol, tf_type)

@@ -39,7 +39,8 @@ def _connect():
         raise ValueError("DATABASE_URL is missing from environment variables.")
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
-    return psycopg2.connect(db_url)
+    # 🚨 Add connect_timeout to prevent hangs 🚨
+    return psycopg2.connect(db_url, connect_timeout=10)
 
 def init_db():
     conn = _connect()
@@ -112,17 +113,14 @@ def get_performance_stats():
     finally:
         conn.close()
 
-# 🚨 NEW FUNCTIONS FOR AI MEMORY 🚨
 def save_insight(category, insight, win_rate, sample_size):
     ts = datetime.now(tz=timezone.utc).isoformat()
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            # Prevent saving the exact same insight repeatedly
             cur.execute("SELECT id FROM research_insights WHERE insight = %s", (insight,))
             if cur.fetchone():
                 return False
-                
             cur.execute("""
                 INSERT INTO research_insights (ts, category, insight, win_rate, sample_size)
                 VALUES (%s, %s, %s, %s, %s)
