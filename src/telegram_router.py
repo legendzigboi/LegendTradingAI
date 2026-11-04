@@ -27,6 +27,7 @@ from src.sr_engine import check_support_resistance
 from src.fear_greed_engine import get_crypto_fear_greed
 from src.regime_engine import check_market_regime
 from src.order_flow_engine import get_order_flow_imbalance, calculate_vwap_zscore
+from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend # 🚨 NEW IMPORT 🚨
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -147,7 +148,7 @@ async def run_analysis(message, symbol, timeframe):
         if atr_val < min_atr:
             await message.reply_text(f"⚪ **NO TRADE**\n\nMarket is too flat (Low Volatility).", parse_mode="Markdown"); return
 
-        # Advanced Predictive Modifiers
+        # Predictive Modifiers
         base_confidence = confidence
         flow_text = "N/A"
         vwap_text = "N/A"
@@ -178,6 +179,26 @@ async def run_analysis(message, symbol, timeframe):
         if direction == "SHORT" and sentiment == "BULLISH":
             await message.reply_text(f"⛔ **BLOCKED**\n\nAI wants to SELL, but News is BULLISH.", parse_mode="Markdown"); return
 
+        # 🚨 MACRO CHECKS (Crowd & DXY) 🚨
+        macro_text = ""
+        if is_crypto:
+            crowd = await asyncio.to_thread(get_crypto_crowd_sentiment, symbol)
+            if crowd:
+                long_ratio, short_ratio = crowd
+                if direction == "LONG" and long_ratio > 0.75:
+                    await message.reply_text(f"⛔ **BLOCKED (CROWD)**\n\nRetail is 75%+ LONG. Whales will likely dump on them.", parse_mode="Markdown"); return
+                if direction == "SHORT" and short_ratio > 0.75:
+                    await message.reply_text(f"⛔ **BLOCKED (CROWD)**\n\nRetail is 75%+ SHORT. Whales will likely pump.", parse_mode="Markdown"); return
+                macro_text = f"🐋 Retail Long/Short: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
+        else:
+            # Forex/Stocks DXY Correlation
+            dxy_trend = await asyncio.to_thread(get_dxy_trend)
+            if direction == "LONG" and dxy_trend == "UPTREND":
+                await message.reply_text(f"⛔ **BLOCKED (DXY)**\n\nDXY is in an UPTREND. Fighting the Dollar is dangerous.", parse_mode="Markdown"); return
+            if direction == "SHORT" and dxy_trend == "DOWNTREND":
+                await message.reply_text(f"⛔ **BLOCKED (DXY)**\n\nDXY is in a DOWNTREND. Shorting is risky.", parse_mode="Markdown"); return
+            macro_text = f"💵 DXY Trend: {dxy_trend}"
+
         regime_name = "UNKNOWN"
         try:
             regime_candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, display_tf, 100), timeout=10.0)
@@ -189,9 +210,9 @@ async def run_analysis(message, symbol, timeframe):
             fg_score, fg_class = await asyncio.to_thread(get_crypto_fear_greed)
             if fg_score is not None:
                 fg_text = f"{fg_score} ({fg_class})"
-                if direction == "LONG" and fg_score >= 80:
+                if direction == "LONG" and fg_score >= 85:
                     await message.reply_text(f"⛔ **BLOCKED**\n\nExtreme Greed ({fg_score})."); return
-                if direction == "SHORT" and fg_score <= 20:
+                if direction == "SHORT" and fg_score <= 15:
                     await message.reply_text(f"⛔ **BLOCKED**\n\nExtreme Fear ({fg_score})."); return
 
         try:
@@ -223,18 +244,12 @@ async def run_analysis(message, symbol, timeframe):
         quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
         sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
 
-        # 🚨 POSITION SIZING 🚨
-        # Assuming a standard $1000 account, risking 1% ($10)
+        # Position Sizing
         account_size = 1000
         risk_percent = 0.01
         risk_amount = account_size * risk_percent
-        
-        # Calculate distance to SL as a percentage
         sl_distance_pct = abs(plan["entry"] - plan["stop_loss"]) / plan["entry"]
-        # Suggested lot size (volume) = Risk Amount / (Entry * SL Distance)
-        # Note: This is a simplified lot size calculation for standard CFDs
         suggested_lot = risk_amount / (plan["entry"] * sl_distance_pct) if sl_distance_pct > 0 else 0
-        # Scale it down to a reasonable decimal for Forex/Crypto
         suggested_lot = round(suggested_lot / 1000, 2) 
         if suggested_lot < 0.01: suggested_lot = 0.01
 
@@ -252,6 +267,7 @@ async def run_analysis(message, symbol, timeframe):
             f"📊 CONFIDENCE\n"
             f"{confidence*100:.1f}% ({quality})\n"
             f"*(Math: {base_confidence*100:.1f}% | Modifiers: {modifier_text})*\n"
+            f"{macro_text}\n"
             f"🐋 Order Flow: {flow_text}\n"
             f"📉 VWAP: {vwap_text}\n"
             f"📰 Sentiment: {sent_emoji} {sentiment}\n"

@@ -1,10 +1,13 @@
 import pandas as pd
 import numpy as np
 import xgboost as xgb
+import lightgbm as lgb
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 import requests
 import yfinance as yf
 import os
 import time
+import joblib
 from datetime import datetime, timezone
 
 os.makedirs("models/v0.2", exist_ok=True)
@@ -78,7 +81,7 @@ def compute_features(df):
     out["dow_sin"] = np.sin(2 * np.pi * dow / 7); out["dow_cos"] = np.cos(2 * np.pi * dow / 7); out["is_weekend"] = (dow >= 5).astype(int)
     return out
 
-def train_model(symbol, tf, is_crypto):
+def train_model_ensemble(symbol, tf, is_crypto):
     print(f"Downloading {symbol} on {tf}...", end=" ")
     df = fetch_crypto(symbol, tf) if is_crypto else fetch_yahoo(symbol, tf)
     
@@ -86,13 +89,14 @@ def train_model(symbol, tf, is_crypto):
         print("⚠ Not enough data")
         return
     
-    print(f"Got {len(df)} rows. Training...", end=" ")
+    print(f"Got {len(df)} rows. Training Ensemble...", end=" ")
     feats = compute_features(df)
     H = 1 
     future_return = df["close"].shift(-H) / df["close"] - 1
     labels = pd.Series(np.nan, index=df.index)
     min_move = 0.0005 if tf in ["1m", "5m"] else 0.001
     labels[future_return > min_move] = 1; labels[future_return < -min_move] = 0
+    
     combined = feats.copy(); combined["label"] = labels; combined = combined.dropna()
     X = combined.drop(columns=["label"]); y = combined["label"].astype(int)
     X = X.iloc[:-H]; y = y.iloc[:-H]
@@ -100,24 +104,30 @@ def train_model(symbol, tf, is_crypto):
     if len(X) < 100: 
         print("⚠ Not enough clean rows")
         return
-        
-    model = xgb.XGBClassifier(n_estimators=150, max_depth=4, learning_rate=0.05, random_state=42)
-    model.fit(X, y)
+
+    # 🚨 THE ENSEMBLE VOTING CLASSIFIER (2 out of 3 must agree) 🚨
+    clf1 = xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42)
+    clf2 = RandomForestClassifier(n_estimators=100, max_depth=6, random_state=42)
+    clf3 = lgb.LGBMClassifier(n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42, verbosity=-1)
+    
+    eclf = VotingClassifier(estimators=[('xgb', clf1), ('rf', clf2), ('lgbm', clf3)], voting='hard')
+    
+    eclf.fit(X, y)
     
     safe_sym = symbol.replace("=", "_")
     suffix = "h1" if is_crypto else "h10"
-    model.save_model(f"models/v0.2/v0.2_{safe_sym}_{tf}_{suffix}_long.json")
+    joblib.dump(eclf, f"models/v0.2/v0.2_{safe_sym}_{tf}_{suffix}_ensemble.pkl")
     print(f"✅ Saved!")
 
 if __name__ == "__main__":
-    print("🚀 STARTING FULL RETRAIN...")
+    print("🚀 STARTING FULL ENSEMBLE RETRAIN...")
     for sym in CRYPTO:
         for tf in TIMEFRAMES:
-            train_model(sym, tf, True)
+            train_model_ensemble(sym, tf, True)
             time.sleep(1)
             
     for sym in FOREX_STOCKS:
         for tf in TIMEFRAMES:
-            train_model(sym, tf, False)
+            train_model_ensemble(sym, tf, False)
             time.sleep(1)
-    print("✅ ALL MODELS RETRAINED!")
+    print("✅ ALL ENSEMBLE MODELS RETRAINED!")
