@@ -26,7 +26,7 @@ from src.deep_researcher import deep_research_trade
 from src.sr_engine import check_support_resistance
 from src.fear_greed_engine import get_crypto_fear_greed
 from src.regime_engine import check_market_regime
-from src.order_flow_engine import get_order_flow_imbalance, calculate_vwap_zscore # 🚨 NEW IMPORT 🚨
+from src.order_flow_engine import get_order_flow_imbalance, calculate_vwap_zscore
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,7 +71,6 @@ async def scheduled_scan_job(context):
 
 @restricted
 async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Same as before...
     pass
 
 async def run_analysis(message, symbol, timeframe):
@@ -112,14 +111,12 @@ async def run_analysis(message, symbol, timeframe):
                 fallback_tf = "1h"
                 model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
                 model_path = MODEL_DIR / model_name
-                if model_path.exists():
-                    display_tf = fallback_tf
+                if model_path.exists(): display_tf = fallback_tf
                 else:
                     fallback_tf = "5m"
                     model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
                     model_path = MODEL_DIR / model_name
-                    if model_path.exists():
-                        display_tf = fallback_tf
+                    if model_path.exists(): display_tf = fallback_tf
                     else:
                         await message.reply_text(f"❌ Error: No models found for `{symbol}`."); return
             else:
@@ -150,36 +147,26 @@ async def run_analysis(message, symbol, timeframe):
         if atr_val < min_atr:
             await message.reply_text(f"⚪ **NO TRADE**\n\nMarket is too flat (Low Volatility).", parse_mode="Markdown"); return
 
-        # 🚨 ADVANCED PREDICTIVE MODIFIERS 🚨
-        # We will adjust the confidence based on Order Flow and VWAP
+        # Advanced Predictive Modifiers
         base_confidence = confidence
         flow_text = "N/A"
         vwap_text = "N/A"
         
         try:
-            # 1. Order Flow (Whales)
             flow_ratio, flow_text = await asyncio.to_thread(get_order_flow_imbalance, symbol)
-            if direction == "LONG" and flow_ratio > 1.3:
-                confidence += 0.05 # Boost confidence by 5%
-            elif direction == "SHORT" and flow_ratio < 0.7:
-                confidence += 0.05
-            elif direction == "LONG" and flow_ratio < 0.6:
-                confidence -= 0.05 # Reduce confidence if whales are selling
-            elif direction == "SHORT" and flow_ratio > 1.5:
-                confidence -= 0.05
+            if direction == "LONG" and flow_ratio > 1.3: confidence += 0.05
+            elif direction == "SHORT" and flow_ratio < 0.7: confidence += 0.05
+            elif direction == "LONG" and flow_ratio < 0.6: confidence -= 0.05
+            elif direction == "SHORT" and flow_ratio > 1.5: confidence -= 0.05
 
-            # 2. VWAP Mean Reversion
             if len(candles) >= 20:
                 z_score = await asyncio.to_thread(calculate_vwap_zscore, candles)
                 vwap_text = f"Z-Score: {z_score:.2f}"
-                if direction == "LONG" and z_score < -2.0: # Oversold
-                    confidence += 0.03
-                elif direction == "SHORT" and z_score > 2.0: # Overbought
-                    confidence += 0.03
+                if direction == "LONG" and z_score < -2.0: confidence += 0.03
+                elif direction == "SHORT" and z_score > 2.0: confidence += 0.03
         except Exception as e:
             logger.error(f"Predictive Modifier Error: {e}")
 
-        # Cap confidence at 99% and floor at 1%
         confidence = max(0.01, min(0.99, confidence))
         modifier_text = f"Base: {base_confidence*100:.1f}% ➔ Final: {confidence*100:.1f}%" if confidence != base_confidence else "N/A"
 
@@ -236,6 +223,21 @@ async def run_analysis(message, symbol, timeframe):
         quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
         sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
 
+        # 🚨 POSITION SIZING 🚨
+        # Assuming a standard $1000 account, risking 1% ($10)
+        account_size = 1000
+        risk_percent = 0.01
+        risk_amount = account_size * risk_percent
+        
+        # Calculate distance to SL as a percentage
+        sl_distance_pct = abs(plan["entry"] - plan["stop_loss"]) / plan["entry"]
+        # Suggested lot size (volume) = Risk Amount / (Entry * SL Distance)
+        # Note: This is a simplified lot size calculation for standard CFDs
+        suggested_lot = risk_amount / (plan["entry"] * sl_distance_pct) if sl_distance_pct > 0 else 0
+        # Scale it down to a reasonable decimal for Forex/Crypto
+        suggested_lot = round(suggested_lot / 1000, 2) 
+        if suggested_lot < 0.01: suggested_lot = 0.01
+
         msg = (
             f"🤖 LEGEND TRADING AI\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -261,6 +263,9 @@ async def run_analysis(message, symbol, timeframe):
             f"Entry: <code>{format_price(plan['entry'])}</code>\n"
             f"SL: <code>{format_price(plan['stop_loss'])}</code>\n"
             f"Target: <code>{format_price(plan['tp1'])}</code>\n\n"
+            f"💰 **POSITION SIZING**\n"
+            f"Risk: 1% of $1000 = $10\n"
+            f"Suggested Lot: <code>{suggested_lot}</code>\n\n"
             f"ID: {sig_id}"
         )
         
@@ -315,7 +320,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text = "🧠 **AI MEMORY**\n\n"
             for i in insights:
-                text += f"📊 {i['insight']}\n*(Sample: {i['sample_size']})*\n\n"
+                emoji = "🔴" if i['category'] == "AUTO_AUTOPSY" else "📊"
+                text += f"{emoji} {i['insight']}\n*(Sample: {i['sample_size']})*\n\n"
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_testing':
         await query.edit_message_text("⚙️ **MODEL TESTING**\n\nComing Soon.", parse_mode="Markdown", reply_markup=get_main_menu())
