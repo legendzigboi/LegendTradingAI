@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * 0' # Every Sunday at Midnight UTC
   workflow_dispatch: # Allows you to run it manually from the GitHub website
 
+# 🚨 THIS IS THE FIX: Give the bot permission to write to the repo 🚨
+permissions:
+  contents: write
+
 jobs:
   retrain:
     runs-on: ubuntu-latest
