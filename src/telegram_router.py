@@ -23,6 +23,8 @@ from src.research_engine import run_research_lab
 from src.news_filter import check_high_impact_news
 from src.sentiment_engine import get_market_sentiment
 from src.deep_researcher import deep_research_trade
+from src.sr_engine import check_support_resistance
+from src.fear_greed_engine import get_crypto_fear_greed # 🚨 IMPORTED FEAR & GREED 🚨
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -207,6 +209,30 @@ async def run_analysis(message, symbol, timeframe):
             await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to SELL, but News Sentiment is BULLISH.\n{sentiment_reason}", parse_mode="Markdown")
             return
 
+        # 🚨 FEAR & GREED CHECK (CRYPTO ONLY) 🚨
+        fg_text = "N/A"
+        if is_crypto:
+            fg_score, fg_class = await asyncio.to_thread(get_crypto_fear_greed)
+            if fg_score is not None:
+                fg_text = f"{fg_score} ({fg_class})"
+                if direction == "LONG" and fg_score >= 80:
+                    await message.reply_text(f"⛔ **TRADE BLOCKED (MACRO)**\n\nCrypto Market is in Extreme Greed ({fg_score}). Buying here is too risky (blow-off top).", parse_mode="Markdown")
+                    return
+                if direction == "SHORT" and fg_score <= 20:
+                    await message.reply_text(f"⛔ **TRADE BLOCKED (MACRO)**\n\nCrypto Market is in Extreme Fear ({fg_score}). Selling here is too risky (capitulation).", parse_mode="Markdown")
+                    return
+
+        # 🚨 S/R ENGINE CHECK 🚨
+        try:
+            sr_candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, display_tf, 100), timeout=10.0)
+            sr_safe, sr_reason = await asyncio.to_thread(check_support_resistance, symbol, plan["entry"], direction, sr_candles, is_crypto)
+            if not sr_safe:
+                await message.reply_text(f"⛔ **TRADE BLOCKED (S/R)**\n\n{sr_reason}", parse_mode="Markdown")
+                return
+        except Exception as e:
+            logger.warning(f"S/R check skipped: {e}")
+            sr_reason = "S/R Check Skipped"
+
         await message.reply_text("🧠 Running Deep Research (LLM Analysis)...")
         try:
             research_approved, research_reason = await asyncio.wait_for(
@@ -246,6 +272,8 @@ async def run_analysis(message, symbol, timeframe):
             f"{confidence*100:.1f}% ({quality})\n"
             f"📰 Sentiment: {sent_emoji} {sentiment}\n"
             f"📉 Volatility: {atr_val*100:.3f}% (Healthy)\n"
+            f"😱 Fear & Greed: {fg_text}\n"
+            f"🛡️ S/R Check: ✅ Clear\n"
             f"🧠 Deep Research: ✅ APPROVED\n"
             f"*(Reason: {research_reason})*\n\n"
             f"{tech_overview}\n\n"
@@ -319,7 +347,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_testing':
         await query.edit_message_text("⚙️ **MODEL TESTING**\n\nBacktest and validate new models before promoting them to the live engine.\n\n(Coming Soon: /backtest)", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_status':
-        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit/Yahoo\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active\n- Deep Researcher (LLM): Active", parse_mode="Markdown", reply_markup=get_main_menu())
+        await query.edit_message_text("🤖 **SYSTEM STATUS**\n\nAll systems operational.\n- Database: PostgreSQL (Online)\n- Data Feeds: Binance/Bybit/Yahoo\n- Research Engine: Active\n- News Filter: Active\n- Sentiment Engine: Active\n- Deep Researcher (LLM): Active\n- MTF Engine: Active\n- S/R Engine: Active\n- Fear & Greed: Active", parse_mode="Markdown", reply_markup=get_main_menu())
     elif query.data == 'menu_performance':
         stats = get_performance_stats()
         text = (
