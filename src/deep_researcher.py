@@ -4,7 +4,6 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-# Groq uses the OpenAI format but has a different base URL
 client = OpenAI(
     api_key=os.environ.get("GROQ_API_KEY", ""),
     base_url="https://api.groq.com/openai/v1",
@@ -12,9 +11,6 @@ client = OpenAI(
 )
 
 def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reason):
-    """
-    Asks the AI to act as a master trader and approve or veto the trade.
-    """
     if not os.environ.get("GROQ_API_KEY"):
         return True, "No API key. Skipping Deep Research."
 
@@ -29,7 +25,7 @@ def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reas
     Sentiment Reasoning: {sentiment_reason}
     
     Rules:
-    - If the sentiment strongly contradicts the trade direction (e.g. going LONG on very bad news), VETO it.
+    - If the sentiment strongly contradicts the trade direction, VETO it.
     - If the confidence is high and news is neutral or supportive, APPROVE it.
     
     Reply EXACTLY in this format:
@@ -39,7 +35,7 @@ def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reas
 
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-oss-20b", # 🚨 UPDATED TO NEW GROQ MODEL 🚨
+            model="openai/gpt-oss-20b",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=100
@@ -47,11 +43,12 @@ def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reas
         
         output = response.choices[0].message.content.strip()
         
+        # Better parsing logic
         if "VERDICT: VETO" in output.upper():
-            reason = output.split("REASON:")[-1].strip()
+            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else output.replace("VERDICT: VETO", "").strip()
             return False, reason
         else:
-            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else "Approved by AI"
+            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else output.replace("VERDICT: APPROVE", "").strip()
             return True, reason
             
     except Exception as e:
