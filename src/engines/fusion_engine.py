@@ -14,7 +14,6 @@ class FusionEngine:
         self.scalper = ScalperEngine()
 
     def analyze(self, symbol, timeframe=None):
-        # If user clicked FUSION, use default Trend (15m) & Scalper (5m)
         if timeframe is None or timeframe == 'FUSION':
             trend_res = self.trend.analyze(symbol)
             scalper_res = self.scalper.analyze(symbol)
@@ -27,10 +26,11 @@ class FusionEngine:
                 t_conf = trend_res["confidence"]
                 s_conf = scalper_res["confidence"]
                 
-                if t_conf >= 0.70 and t_conf > s_conf + 0.05:
+                # 🚨 NEW LOGIC: Override if one is clearly better (difference > 0.02) 🚨
+                if t_conf >= 0.65 and t_conf > s_conf + 0.02:
                     final_dir, final_conf, engine_name = trend_res["direction"], t_conf, "Legend Fusion (Trend Override)"
                     plan, feats, display_tf = trend_res["plan"], trend_res["features"], trend_res["timeframe"]
-                elif s_conf >= 0.70 and s_conf > t_conf + 0.05:
+                elif s_conf >= 0.65 and s_conf > t_conf + 0.02:
                     final_dir, final_conf, engine_name = scalper_res["direction"], s_conf, "Legend Fusion (Scalper Override)"
                     plan, feats, display_tf = scalper_res["plan"], scalper_res["features"], scalper_res["timeframe"]
                 else:
@@ -41,7 +41,6 @@ class FusionEngine:
                 engine_name = "Legend Fusion"
                 plan, feats, display_tf = trend_res["plan"], trend_res["features"], trend_res["timeframe"]
 
-        # If user clicked a specific timeframe (e.g. 5m)
         else:
             base_engine = TrendEngine()
             res = base_engine.analyze(symbol, timeframe)
@@ -54,15 +53,13 @@ class FusionEngine:
             engine_name = f"Legend Trend ({timeframe})"
             plan, feats, display_tf = res["plan"], res["features"], res["timeframe"]
 
-        # 🚨 MULTI-TIMEFRAME CONFLUENCE CHECK 🚨
-        # Map current timeframe to a higher timeframe
+        # Multi-Timeframe Confluence Check
         htf_map = {"1m": "15m", "5m": "1h", "15m": "4h", "1h": "1d", "4h": "1d", "1d": None}
         higher_tf = htf_map.get(display_tf)
         
         if higher_tf:
             try:
                 safe_symbol = symbol.replace("=", "_")
-                # Try to load the higher timeframe model
                 htf_model_name = f"v0.2_{safe_symbol}_{higher_tf}_h1_long.json"
                 htf_model_path = MODEL_DIR / htf_model_name
                 if not htf_model_path.exists():
@@ -77,7 +74,6 @@ class FusionEngine:
                         htf_dir = "LONG" if htf_proba > 0.5 else "SHORT"
                         htf_conf = htf_proba if htf_proba > 0.5 else (1 - htf_proba)
 
-                        # Check for conflict
                         if htf_dir != final_dir and htf_conf >= 0.60:
                             return {
                                 "status": "NO_TRADE",

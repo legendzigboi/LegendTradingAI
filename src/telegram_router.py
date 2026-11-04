@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
-MIN_CONFIDENCE = 0.65 
-MIN_ATR_CRYPTO = 0.0015 
-MIN_ATR_FOREX = 0.0003  
+MIN_CONFIDENCE = 0.58 
+MIN_ATR_CRYPTO = 0.0010 
+MIN_ATR_FOREX = 0.0001  
 WAT = timezone(timedelta(hours=1))
 
 analysis_lock = asyncio.Lock()
