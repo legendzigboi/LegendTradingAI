@@ -1,27 +1,42 @@
+import joblib
+import xgboost as xgb
 import logging
 from pathlib import Path
-from src.xgb_pure import XGBPure
 
 logger = logging.getLogger(__name__)
 
-# This dictionary stores the models in RAM
-_MODEL_CACHE = {}
+_cache = {}
 
-def get_model(model_path: Path):
-    """Loads model from disk ONCE, then serves it from RAM."""
-    path_str = str(model_path)
-    
-    if path_str in _MODEL_CACHE:
-        return _MODEL_CACHE[path_str]
-        
-    if not model_path.exists():
+def get_model(model_path):
+    """
+    Loads a model from disk. Supports both Ensemble (.pkl) and XGBoost (.json).
+    """
+    path = Path(model_path)
+    path_str = str(path)
+
+    if path_str in _cache:
+        return _cache[path_str]
+
+    if not path.exists():
         return None
-        
+
     try:
-        logger.info(f"Loading model into cache: {model_path.name}")
-        model = XGBPure(model_path)
-        _MODEL_CACHE[path_str] = model
+        if path.suffix == '.pkl':
+            # Load Ensemble (Scikit-learn Voting Classifier)
+            model = joblib.load(path)
+            logger.info(f"Loaded Ensemble Model: {path.name}")
+        elif path.suffix == '.json':
+            # Load XGBoost
+            model = xgb.XGBClassifier()
+            model.load_model(path)
+            logger.info(f"Loaded XGBoost Model: {path.name}")
+        else:
+            logger.error(f"Unknown model format: {path.suffix}")
+            return None
+
+        _cache[path_str] = model
         return model
+
     except Exception as e:
-        logger.error(f"Failed to load model {path_str}: {e}")
+        logger.error(f"Error loading model {path.name}: {e}")
         return None

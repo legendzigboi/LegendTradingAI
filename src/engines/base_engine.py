@@ -17,18 +17,18 @@ class BaseEngine:
         safe_symbol = symbol.replace("=", "_")
         
         # Try the new H1 models first (Crypto)
-        model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
+        model_name = f"v0.2_{safe_symbol}_{tf}_ensemble.pkl"
         model_path = MODEL_DIR / model_name
         
         # If H1 doesn't exist, fallback to H10 (Forex)
         if not model_path.exists():
-            model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
+            model_name = f"v0.2_{safe_symbol}_{tf}_ensemble.pkl"
             model_path = MODEL_DIR / model_name
             
         # 🚨 SMART TIMEFRAME FALLBACK 🚨
         if not model_path.exists():
             fallback_tf = "5m" if tf == "15m" else "1h"
-            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
+            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
             model_path = MODEL_DIR / model_name
             if model_path.exists():
                 logger.info(f"Fallback: Using {fallback_tf} model for {symbol} instead of {tf}")
