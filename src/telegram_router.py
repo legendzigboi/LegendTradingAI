@@ -26,6 +26,7 @@ from src.deep_researcher import deep_research_trade
 from src.sr_engine import check_support_resistance
 from src.fear_greed_engine import get_crypto_fear_greed
 from src.regime_engine import check_market_regime
+from src.order_flow_engine import get_order_flow_imbalance, calculate_vwap_zscore # 🚨 NEW IMPORT 🚨
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -100,8 +101,6 @@ async def run_analysis(message, symbol, timeframe):
             model_name, display_tf = res['engine'], res['timeframe']
         else:
             safe_symbol = symbol.replace("=", "_")
-            
-            # 🚨 DEEP FALLBACK LOGIC 🚨
             model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
             model_path = MODEL_DIR / model_name
             
@@ -110,22 +109,19 @@ async def run_analysis(message, symbol, timeframe):
                 model_path = MODEL_DIR / model_name
                 
             if not model_path.exists():
-                # Fallback to 1h if the specific TF is missing
                 fallback_tf = "1h"
                 model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
                 model_path = MODEL_DIR / model_name
                 if model_path.exists():
                     display_tf = fallback_tf
-                    logger.info(f"Fallback: Using {fallback_tf} for {symbol} instead of {timeframe}")
                 else:
-                    # If 1h is also missing, try 5m
                     fallback_tf = "5m"
                     model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
                     model_path = MODEL_DIR / model_name
                     if model_path.exists():
                         display_tf = fallback_tf
                     else:
-                        await message.reply_text(f"❌ Error: No models found for `{symbol}`. Please retrain."); return
+                        await message.reply_text(f"❌ Error: No models found for `{symbol}`."); return
             else:
                 display_tf = timeframe
             
@@ -154,6 +150,39 @@ async def run_analysis(message, symbol, timeframe):
         if atr_val < min_atr:
             await message.reply_text(f"⚪ **NO TRADE**\n\nMarket is too flat (Low Volatility).", parse_mode="Markdown"); return
 
+        # 🚨 ADVANCED PREDICTIVE MODIFIERS 🚨
+        # We will adjust the confidence based on Order Flow and VWAP
+        base_confidence = confidence
+        flow_text = "N/A"
+        vwap_text = "N/A"
+        
+        try:
+            # 1. Order Flow (Whales)
+            flow_ratio, flow_text = await asyncio.to_thread(get_order_flow_imbalance, symbol)
+            if direction == "LONG" and flow_ratio > 1.3:
+                confidence += 0.05 # Boost confidence by 5%
+            elif direction == "SHORT" and flow_ratio < 0.7:
+                confidence += 0.05
+            elif direction == "LONG" and flow_ratio < 0.6:
+                confidence -= 0.05 # Reduce confidence if whales are selling
+            elif direction == "SHORT" and flow_ratio > 1.5:
+                confidence -= 0.05
+
+            # 2. VWAP Mean Reversion
+            if len(candles) >= 20:
+                z_score = await asyncio.to_thread(calculate_vwap_zscore, candles)
+                vwap_text = f"Z-Score: {z_score:.2f}"
+                if direction == "LONG" and z_score < -2.0: # Oversold
+                    confidence += 0.03
+                elif direction == "SHORT" and z_score > 2.0: # Overbought
+                    confidence += 0.03
+        except Exception as e:
+            logger.error(f"Predictive Modifier Error: {e}")
+
+        # Cap confidence at 99% and floor at 1%
+        confidence = max(0.01, min(0.99, confidence))
+        modifier_text = f"Base: {base_confidence*100:.1f}% ➔ Final: {confidence*100:.1f}%" if confidence != base_confidence else "N/A"
+
         if confidence < MIN_CONFIDENCE:
             await message.reply_text(f"⚪ **NO TRADE**\n\nAI Confidence: {confidence*100:.1f}% (Below {MIN_CONFIDENCE*100:.0f}%)", parse_mode="Markdown"); return
             
@@ -162,7 +191,6 @@ async def run_analysis(message, symbol, timeframe):
         if direction == "SHORT" and sentiment == "BULLISH":
             await message.reply_text(f"⛔ **BLOCKED**\n\nAI wants to SELL, but News is BULLISH.", parse_mode="Markdown"); return
 
-        # 🚨 REGIME (NOW PASSIVE) 🚨
         regime_name = "UNKNOWN"
         try:
             regime_candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, display_tf, 100), timeout=10.0)
@@ -221,11 +249,11 @@ async def run_analysis(message, symbol, timeframe):
             f"End Trade:   {end_str}\n\n"
             f"📊 CONFIDENCE\n"
             f"{confidence*100:.1f}% ({quality})\n"
+            f"*(Math: {base_confidence*100:.1f}% | Modifiers: {modifier_text})*\n"
+            f"🐋 Order Flow: {flow_text}\n"
+            f"📉 VWAP: {vwap_text}\n"
             f"📰 Sentiment: {sent_emoji} {sentiment}\n"
-            f"📉 Volatility: {atr_val*100:.3f}%\n"
             f"📈 Regime: {regime_name}\n"
-            f"😱 Fear & Greed: {fg_text}\n"
-            f"🛡️ S/R Check: ✅ Clear\n"
             f"🧠 Deep Research: ✅ APPROVED\n"
             f"*(Reason: {research_reason})*\n\n"
             f"{tech_overview}\n\n"
