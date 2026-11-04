@@ -1,52 +1,47 @@
-import json
-import requests
-import urllib.parse
-from datetime import datetime, timezone
+import pandas as pd
+import mplfinance as mpf
 import logging
-from src.live_features import fetch_klines
+import os
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 def generate_chart(symbol, timeframe, plan, direction):
     try:
-        candles = fetch_klines(symbol, timeframe, limit=30)
-        labels = [datetime.fromtimestamp(c[0]/1000, tz=timezone.utc).strftime('%H:%M') for c in candles]
-        data = [[float(c[1]), float(c[2]), float(c[3]), float(c[4])] for c in candles]
+        from src.live_features import fetch_klines
+        
+        # Fetch last 50 candles for a clean chart
+        candles = fetch_klines(symbol, timeframe, 50)
+        if not candles or len(candles) < 10:
+            return None
 
-        chart_config = {
-            "type": "candlestick",
-            "data": {
-                "labels": labels,
-                "datasets": [{
-                    "label": f"{symbol} {timeframe}",
-                    "data": data,
-                    "color": {"up": "rgba(0, 200, 0, 1)", "down": "rgba(200, 0, 0, 1)"}
-                }]
-            },
-            "options": {
-                "plugins": {
-                    "annotation": {
-                        "annotations": {
-                            "entry": {"type": "line", "mode": "horizontal", "scaleID": "y", "value": plan['entry'], "borderColor": "blue", "borderWidth": 2},
-                            "sl": {"type": "line", "mode": "horizontal", "scaleID": "y", "value": plan['stop_loss'], "borderColor": "red", "borderWidth": 2},
-                            "tp1": {"type": "line", "mode": "horizontal", "scaleID": "y", "value": plan['tp1'], "borderColor": "green", "borderWidth": 2}
-                        }
-                    }
-                }
-            }
-        }
+        # Convert to pandas DataFrame for mplfinance
+        df = pd.DataFrame(candles, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'ignore1', 'ignore2', 'ignore3', 'ignore4', 'ignore5'])
+        df['time'] = pd.to_datetime(df['time'], unit='ms')
+        df = df[['time', 'open', 'high', 'low', 'close', 'volume']]
+        df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+        df.set_index('time', inplace=True)
+
+        # Define our custom style (Binance-like dark mode)
+        mc = mpf.make_marketcolors(up='#0ECB81', down='#F6465D', edge='inherit', wick='inherit', volume='in')
+        s  = mpf.make_mpf_style(marketcolors=mc, gridstyle='', y_on_right=True, facecolor='#1E2329')
+
+        # Draw horizontal lines for Entry, SL, and TP
+        hlines_dict = dict(hlines=[plan['entry'], plan['stop_loss'], plan['tp1']], 
+                           colors=['#FCD535', '#F6465D', '#0ECB81'], 
+                           linewidths=[1.5, 1.5, 1.5], 
+                           linestyle='--')
+
+        chart_file = f"chart_{symbol}_{timeframe}.png"
         
-        # Increased timeout to 30 seconds for Render's network
-        response = requests.post("https://quickchart.io/chart", json={"chart": chart_config}, timeout=30)
-        
-        if response.status_code == 200:
-            with open("chart.png", "wb") as f:
-                f.write(response.content)
-            return "chart.png"
-        else:
-            logger.error(f"QuickChart HTTP Error {response.status_code}: {response.text[:200]}")
-            
+        # Generate and save the chart
+        mpf.plot(df, type='candle', style=s, volume=True, 
+                 title=f"\n{symbol} - {timeframe}", 
+                 hlines=hlines_dict, 
+                 savefig=dict(fname=chart_file, dpi=100, bbox_inches='tight'),
+                 figsize=(10, 6))
+
+        return chart_file
     except Exception as e:
-        logger.error(f"Chart generation error: {e}")
-    
-    return None
+        logger.error(f"Chart generation failed: {e}")
+        return None

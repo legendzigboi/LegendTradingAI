@@ -7,3 +7,5 @@ Flask
 Pillow
 psycopg2-binary>=2.9.12
 openai
+mplfinance
+matplotlib
