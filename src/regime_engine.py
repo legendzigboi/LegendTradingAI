@@ -3,6 +3,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 def check_market_regime(candles):
+    """
+    Analyzes the market, but NO LONGER BLOCKS trades. 
+    It just returns the state for informational purposes.
+    """
     try:
         if len(candles) < 50:
             return True, "UNKNOWN", "Not enough data"
@@ -26,16 +30,16 @@ def check_market_regime(candles):
         std20 = variance ** 0.5
         bb_width = (2 * std20) / sma20 if sma20 > 0 else 0
 
-        # 🚨 RELAXED THRESHOLDS 🚨
         if bb_width < 0.0005: 
-            return False, "SQUEEZE", f"Bollinger Bands are extremely tight ({bb_width*100:.3f}%). Market is dead."
-            
-        if ema_spread < 0.0002:
-            return False, "RANGING", f"EMA20 and EMA50 are flat ({ema_spread*100:.3f}%). No trend."
+            regime = "SQUEEZE"
+        elif ema_spread < 0.0002:
+            regime = "RANGING"
+        else:
+            regime = "UPTREND" if ema20 > ema50 else "DOWNTREND"
 
-        regime = "UPTREND" if ema20 > ema50 else "DOWNTREND"
-        return True, regime, f"Market is in a clear {regime}."
+        # 🚨 ALWAYS RETURNS TRUE (SAFE) 🚨
+        return True, regime, f"Market is {regime}."
 
     except Exception as e:
         logger.error(f"Regime Engine Error: {e}")
-        return True, "UNKNOWN", "Regime check failed, defaulting to safe."
+        return True, "UNKNOWN", "Regime check failed."
