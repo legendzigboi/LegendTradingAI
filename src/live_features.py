@@ -18,6 +18,9 @@ FEATURE_NAMES = [
     "obv_slope", "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_weekend",
 ]
 
+# 🚨 ADDED STOCK TICKERS TO THE ROUTER 🚨
+STOCK_TICKERS = ["AAPL", "TSLA", "NVDA", "AMZN", "NDX", "GC=F", "^GSPC"]
+
 def _fetch_binance(symbol, interval, limit):
     last_err = "Unknown"
     for base_url in BINANCE_ENDPOINTS:
@@ -48,27 +51,27 @@ def _fetch_bybit(symbol, interval, limit):
             data = r.json()
             if data.get("retCode") == 0:
                 candles = data["result"]["list"]
-                candles.reverse() # Bybit returns newest first, we need oldest first
+                candles.reverse()
                 return candles
         raise ValueError(f"Bybit HTTP {r.status_code}")
     except Exception as e:
         raise Exception(f"Bybit Error: {str(e)}")
 
 def fetch_klines(symbol, interval="1h", limit=300):
-    # SMART ROUTER (Forex vs Crypto)
-    if "=" in symbol or symbol in ["GC=F", "CL=F", "^GSPC"]:
+    # 🚨 SMART ROUTER: Forex and Stocks go to Yahoo Finance 🚨
+    if "=" in symbol or symbol in STOCK_TICKERS:
         return fetch_forex_klines(symbol, interval, limit)
 
-    # Try Binance
+    # Crypto goes to Binance/Bybit
     try:
         return _fetch_binance(symbol, interval, limit)
     except Exception as binance_err:
-        # If Binance is banned, silently fallback to Bybit
         try:
             return _fetch_bybit(symbol, interval, limit)
         except Exception as bybit_err:
             raise Exception(f"All Crypto APIs Failed. Binance: {binance_err} | Bybit: {bybit_err}")
 
+# ... (rest of the compute_features and get_latest_features functions remain exactly the same as before)
 def _ema(values, span):
     if not values: return []
     alpha = 2.0 / (span + 1)

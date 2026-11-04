@@ -34,6 +34,7 @@ MIN_ATR_CRYPTO = 0.0015
 MIN_ATR_FOREX = 0.0003  
 WAT = timezone(timedelta(hours=1))
 
+# 🚨 THE LOCK 🚨
 analysis_lock = asyncio.Lock()
 
 def format_price(price):
@@ -67,12 +68,220 @@ async def scheduled_scan_job(context):
 
 @restricted
 async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # (Scanner logic remains unchanged)
-    pass
+    chat_id = update.effective_chat.id if update else AUTHORIZED_USER_IDS[0]
+    
+    if update and getattr(update, 'message', None):
+        await update.message.reply_text("🔍 Scanning all markets for PREMIUM setups...")
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="⏰ SCHEDULED SCAN: Scanning markets...")
+    
+    results = await asyncio.to_thread(scan_markets, min_confidence=MIN_CONFIDENCE)
+    
+    if not results:
+        await context.bot.send_message(chat_id=chat_id, text="⚪ NO PREMIUM TRADE\nNo setups passed the strict filters right now.")
+        return
+
+    for res in results[:2]:
+        is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, res['symbol'])
+        if not is_safe:
+            await context.bot.send_message(chat_id=chat_id, text=f"⛔ TRADE BLOCKED: {news_warning}")
+            continue
+
+        sentiment, sentiment_reason = await asyncio.to_thread(get_market_sentiment, res['symbol'])
+        research_approved, research_reason = await asyncio.to_thread(
+            deep_research_trade, res['symbol'], res['direction'], res['confidence'], sentiment, sentiment_reason
+        )
+        if not research_approved:
+            await context.bot.send_message(chat_id=chat_id, text=f"🧠 **DEEP RESEARCH VETO**\n\n{research_reason}", parse_mode="Markdown")
+            continue
+
+        start_str = res['plan']['start_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        end_str = res['plan']['end_time'].astimezone(WAT).strftime('%I:%M %p WAT')
+        duration = res['plan']['duration_min']
+        quality = "🔥 STRONG" if res['confidence'] >= 0.70 else "⚡ MODERATE"
+        
+        msg = (
+            f"🤖 LEGEND TRADING AI\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"PAPER MODE\n\n"
+            f"{'🟢 BUY ▲' if res['direction'] == 'LONG' else '🔴 SELL ▼'}\n"
+            f"{res['symbol']} · {res['timeframe']}\n\n"
+            f"⏱ EXPIRY: {duration} minutes\n"
+            f"Start: {start_str}\n"
+            f"End: {end_str}\n\n"
+            f"📊 CONFIDENCE\n"
+            f"{res['confidence']*100:.1f}% ({quality})\n\n"
+            f"🎯 TRADE PLAN\n"
+            f"Entry: {format_price(res['plan']['entry'])}\n"
+            f"SL: {format_price(res['plan']['stop_loss'])}\n"
+            f"Target: {format_price(res['plan']['tp1'])}\n"
+        )
+        
+        try:
+            static_img = "buy.png" if res['direction'] == "LONG" else "sell.png"
+            if os.path.exists(static_img):
+                with open(static_img, "rb") as f:
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+        except Exception as e:
+            logger.error(f"Scanner image error: {e}")
+            await context.bot.send_message(chat_id=chat_id, text=msg)
 
 async def run_analysis(message, symbol, timeframe):
-    # (Analysis logic remains unchanged)
-    pass
+    allowed, risk_msg = check_circuit_breaker()
+    if not allowed:
+        await message.reply_text(risk_msg, parse_mode=None)
+        return
+
+    is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, symbol)
+    if not is_safe:
+        await message.reply_text(f"⛔ **TRADE BLOCKED**\n\n{news_warning}\n\n*Protecting capital during high volatility.*", parse_mode="Markdown")
+        return
+        
+    sentiment, sentiment_reason = await asyncio.to_thread(get_market_sentiment, symbol)
+
+    try:
+        if timeframe == 'FUSION':
+            engine = FusionEngine()
+            try:
+                res = await asyncio.wait_for(asyncio.to_thread(engine.analyze, symbol), timeout=20.0)
+            except asyncio.TimeoutError:
+                await message.reply_text("❌ Error: Fusion Engine timed out.", parse_mode=None); return
+                
+            if "error" in res:
+                await message.reply_text(f"❌ Error: {res['error']}", parse_mode=None); return
+            if res.get("status") == "NO_TRADE":
+                await message.reply_text(f"⚪ NO TRADE\n{res['reason']}", parse_mode=None); return
+            feats, direction, confidence, plan = res['features'], res['direction'], res['confidence'], res['plan']
+            model_name, display_tf = res['engine'], res['timeframe']
+        else:
+            safe_symbol = symbol.replace("=", "_")
+            model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
+            model_path = MODEL_DIR / model_name
+            
+            if not model_path.exists():
+                model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
+                model_path = MODEL_DIR / model_name
+            
+            model = get_model(model_path)
+            if not model:
+                await message.reply_text(f"❌ Error: Model `{model_name}` not found.", parse_mode=None); return
+
+            try:
+                feats, ts_ms = await asyncio.wait_for(asyncio.to_thread(get_latest_features, symbol, timeframe), timeout=15.0)
+                candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, timeframe, 2), timeout=10.0)
+            except asyncio.TimeoutError:
+                await message.reply_text("❌ Error: Data fetch timed out. APIs might be blocked or slow.", parse_mode=None); return
+            
+            entry_price = float(candles[-2][4])
+            atr_14 = feats[18] 
+            proba = model.predict_proba([feats])[0]
+            direction = "LONG" if proba > 0.5 else "SHORT"
+            confidence = proba if proba > 0.5 else (1 - proba)
+            
+            plan = build_trade_plan(entry_price, direction, atr_14, timeframe)
+            display_tf = timeframe
+
+        atr_val = feats[18]
+        is_crypto = "USDT" in symbol
+        min_atr = MIN_ATR_CRYPTO if is_crypto else MIN_ATR_FOREX
+        
+        if atr_val < min_atr:
+            await message.reply_text(f"⚪ **NO TRADE**\n\nMarket is too flat (Low Volatility). ATR is only {atr_val*100:.3f}%. Avoiding chop.", parse_mode="Markdown")
+            return
+
+        if confidence < MIN_CONFIDENCE:
+            await message.reply_text(
+                f"⚪ **NO TRADE**\n\n"
+                f"Pair: {symbol} ({display_tf})\n"
+                f"AI Confidence: {confidence*100:.1f}%\n\n"
+                f"❌ Setup rejected because confidence is below our {MIN_CONFIDENCE*100:.0f}% safety threshold.",
+                parse_mode="Markdown"
+            )
+            return
+            
+        if direction == "LONG" and sentiment == "BEARISH":
+            await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to BUY, but News Sentiment is BEARISH.\n{sentiment_reason}", parse_mode="Markdown")
+            return
+        if direction == "SHORT" and sentiment == "BULLISH":
+            await message.reply_text(f"⛔ **TRADE BLOCKED**\n\nAI wants to SELL, but News Sentiment is BULLISH.\n{sentiment_reason}", parse_mode="Markdown")
+            return
+
+        await message.reply_text("🧠 Running Deep Research (LLM Analysis)...")
+        try:
+            research_approved, research_reason = await asyncio.wait_for(
+                asyncio.to_thread(deep_research_trade, symbol, direction, confidence, sentiment, sentiment_reason),
+                timeout=6.0
+            )
+        except asyncio.TimeoutError:
+            research_approved, research_reason = True, "AI Timeout. Proceeding with Math Model."
+        
+        if not research_approved:
+            await message.reply_text(f"⛔ **TRADE VETOED BY DEEP RESEARCHER**\n\n{research_reason}", parse_mode="Markdown")
+            return
+
+        tech_overview = get_technical_overview(feats, direction, display_tf)
+        sig_id = log_signal(symbol=symbol, timeframe=display_tf, direction=direction, model_version=model_name, confidence=float(confidence), entry_price=plan["entry"], stop_loss=plan["stop_loss"], tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0))
+        
+        signal_time = datetime.now(tz=WAT).strftime('%I:%M:%S %p WAT')
+        start_str = plan['start_time'].astimezone(WAT).strftime('%I:%M:%S %p WAT')
+        end_str = plan['end_time'].astimezone(WAT).strftime('%I:%M:%S %p WAT')
+        duration = plan['duration_min']
+        quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
+
+        sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
+
+        msg = (
+            f"🤖 LEGEND TRADING AI\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"PAPER MODE\n\n"
+            f"{'🟢 BUY ▲' if direction == 'LONG' else '🔴 SELL ▼'}\n"
+            f"{symbol} · Chart: {display_tf}\n"
+            f"Engine: {model_name}\n\n"
+            f"⏱ EXPIRY: {duration} minutes\n"
+            f"Signal Time: {signal_time}\n"
+            f"Start Trade: {start_str}\n"
+            f"End Trade:   {end_str}\n\n"
+            f"📊 CONFIDENCE\n"
+            f"{confidence*100:.1f}% ({quality})\n"
+            f"📰 Sentiment: {sent_emoji} {sentiment}\n"
+            f"📉 Volatility: {atr_val*100:.3f}% (Healthy)\n"
+            f"🧠 Deep Research: ✅ APPROVED\n"
+            f"*(Reason: {research_reason})*\n\n"
+            f"{tech_overview}\n\n"
+            f"🎯 TRADE PLAN\n"
+            f"Entry: {format_price(plan['entry'])}\n"
+            f"SL: {format_price(plan['stop_loss'])}\n"
+            f"Target: {format_price(plan['tp1'])}\n\n"
+            f"ID: {sig_id}"
+        )
+        
+        await message.reply_text("⏳ Generating complete signal image...")
+
+        try:
+            static_img = "buy.png" if direction == "LONG" else "sell.png"
+            final_img = static_img
+
+            try:
+                chart_file = await asyncio.wait_for(asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction), timeout=15.0)
+                if chart_file and os.path.exists(chart_file):
+                    final_img = chart_file
+            except Exception as chart_err:
+                logger.warning(f"Chart generation skipped/timed out: {chart_err}")
+
+            if os.path.exists(final_img):
+                with open(final_img, "rb") as f:
+                    await message.reply_photo(photo=f, caption=msg)
+            else:
+                await message.reply_text(msg)
+                
+        except Exception as img_err:
+            logger.error(f"Image sending failed: {img_err}")
+            await message.reply_text(msg)
+
+    except Exception as e:
+        await message.reply_text(f"❌ Error: {str(e)}", parse_mode=None)
 
 @restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -87,13 +296,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🪙 SELECT CRYPTO PAIR:", reply_markup=get_crypto_menu())
     elif query.data == 'market_forex':
         await query.edit_message_text("💱 SELECT FOREX PAIR:", reply_markup=get_forex_menu())
-        
-    # 🚨 STOCKS & INDICES BUTTONS 🚨
     elif query.data == 'market_stocks':
         await query.edit_message_text("📈 SELECT STOCK:", reply_markup=get_stocks_menu())
     elif query.data == 'market_indices':
         await query.edit_message_text("📊 SELECT INDEX/METAL:", reply_markup=get_indices_menu())
-        
     elif query.data == 'menu_pause':
         set_pause(True)
         await query.edit_message_text("🛑 SYSTEM PAUSED.", reply_markup=get_main_menu())
@@ -132,13 +338,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         symbol = query.data.split('_', 1)[1] 
         await query.edit_message_text(f"⏱️ SELECT TIMEFRAME FOR {symbol}:", reply_markup=get_timeframe_menu(symbol))
     elif query.data.startswith('tf_'):
+        # 🚨 CHECK THE LOCK BEFORE ANALYZING 🚨
         if analysis_lock.locked():
-            await query.answer("⏳ The AI is already analyzing a trade. Please wait for it to finish.", show_alert=True)
+            await query.answer("⏳ The AI is already analyzing a trade. Please wait.", show_alert=True)
             return
             
         parts = query.data.split('_')
         tf_type, symbol = parts[1], parts[2]
-        await query.edit_message_text(f"🔍 Analyzing {symbol} on {tf_type}...\nPlease wait.", reply_markup=None)
         
+        # Lock and process
         async with analysis_lock:
+            await query.edit_message_text(f"🔍 Analyzing {symbol} on {tf_type}...\nPlease wait.", reply_markup=None)
             await run_analysis(query.message, symbol, tf_type)
