@@ -34,7 +34,6 @@ MIN_ATR_CRYPTO = 0.0015
 MIN_ATR_FOREX = 0.0003  
 WAT = timezone(timedelta(hours=1))
 
-# 🚨 THE LOCK 🚨
 analysis_lock = asyncio.Lock()
 
 def format_price(price):
@@ -48,7 +47,7 @@ def restricted(func):
         if update:
             user_id = update.effective_user.id if update.effective_user else None
             if user_id not in AUTHORIZED_USER_IDS:
-                if update.message: await update.message.reply_text("⛔ Unauthorized.", parse_mode=None)
+                if update.message: await update.message.reply_text("⛔ Unauthorized.")
                 elif update.callback_query: await update.callback_query.answer("⛔ Unauthorized", show_alert=True)
                 return
         return await func(update, context, *args, **kwargs)
@@ -112,26 +111,26 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 CONFIDENCE\n"
             f"{res['confidence']*100:.1f}% ({quality})\n\n"
             f"🎯 TRADE PLAN\n"
-            f"Entry: {format_price(res['plan']['entry'])}\n"
-            f"SL: {format_price(res['plan']['stop_loss'])}\n"
-            f"Target: {format_price(res['plan']['tp1'])}\n"
+            f"Entry: <code>{format_price(res['plan']['entry'])}</code>\n"
+            f"SL: <code>{format_price(res['plan']['stop_loss'])}</code>\n"
+            f"Target: <code>{format_price(res['plan']['tp1'])}</code>\n"
         )
         
         try:
             static_img = "buy.png" if res['direction'] == "LONG" else "sell.png"
             if os.path.exists(static_img):
                 with open(static_img, "rb") as f:
-                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg)
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=msg, parse_mode="HTML")
             else:
-                await context.bot.send_message(chat_id=chat_id, text=msg)
+                await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Scanner image error: {e}")
-            await context.bot.send_message(chat_id=chat_id, text=msg)
+            await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML")
 
 async def run_analysis(message, symbol, timeframe):
     allowed, risk_msg = check_circuit_breaker()
     if not allowed:
-        await message.reply_text(risk_msg, parse_mode=None)
+        await message.reply_text(risk_msg)
         return
 
     is_safe, news_warning = await asyncio.to_thread(check_high_impact_news, symbol)
@@ -147,12 +146,12 @@ async def run_analysis(message, symbol, timeframe):
             try:
                 res = await asyncio.wait_for(asyncio.to_thread(engine.analyze, symbol), timeout=20.0)
             except asyncio.TimeoutError:
-                await message.reply_text("❌ Error: Fusion Engine timed out.", parse_mode=None); return
+                await message.reply_text("❌ Error: Fusion Engine timed out."); return
                 
             if "error" in res:
-                await message.reply_text(f"❌ Error: {res['error']}", parse_mode=None); return
+                await message.reply_text(f"❌ Error: {res['error']}"); return
             if res.get("status") == "NO_TRADE":
-                await message.reply_text(f"⚪ NO TRADE\n{res['reason']}", parse_mode=None); return
+                await message.reply_text(f"⚪ NO TRADE\n{res['reason']}"); return
             feats, direction, confidence, plan = res['features'], res['direction'], res['confidence'], res['plan']
             model_name, display_tf = res['engine'], res['timeframe']
         else:
@@ -166,13 +165,13 @@ async def run_analysis(message, symbol, timeframe):
             
             model = get_model(model_path)
             if not model:
-                await message.reply_text(f"❌ Error: Model `{model_name}` not found.", parse_mode=None); return
+                await message.reply_text(f"❌ Error: Model `{model_name}` not found."); return
 
             try:
                 feats, ts_ms = await asyncio.wait_for(asyncio.to_thread(get_latest_features, symbol, timeframe), timeout=15.0)
                 candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, timeframe, 2), timeout=10.0)
             except asyncio.TimeoutError:
-                await message.reply_text("❌ Error: Data fetch timed out. APIs might be blocked or slow.", parse_mode=None); return
+                await message.reply_text("❌ Error: Data fetch timed out. APIs might be blocked or slow."); return
             
             entry_price = float(candles[-2][4])
             atr_14 = feats[18] 
@@ -251,9 +250,9 @@ async def run_analysis(message, symbol, timeframe):
             f"*(Reason: {research_reason})*\n\n"
             f"{tech_overview}\n\n"
             f"🎯 TRADE PLAN\n"
-            f"Entry: {format_price(plan['entry'])}\n"
-            f"SL: {format_price(plan['stop_loss'])}\n"
-            f"Target: {format_price(plan['tp1'])}\n\n"
+            f"Entry: <code>{format_price(plan['entry'])}</code>\n"
+            f"SL: <code>{format_price(plan['stop_loss'])}</code>\n"
+            f"Target: <code>{format_price(plan['tp1'])}</code>\n\n"
             f"ID: {sig_id}"
         )
         
@@ -272,16 +271,16 @@ async def run_analysis(message, symbol, timeframe):
 
             if os.path.exists(final_img):
                 with open(final_img, "rb") as f:
-                    await message.reply_photo(photo=f, caption=msg)
+                    await message.reply_photo(photo=f, caption=msg, parse_mode="HTML")
             else:
-                await message.reply_text(msg)
+                await message.reply_text(msg, parse_mode="HTML")
                 
         except Exception as img_err:
             logger.error(f"Image sending failed: {img_err}")
-            await message.reply_text(msg)
+            await message.reply_text(msg, parse_mode="HTML")
 
     except Exception as e:
-        await message.reply_text(f"❌ Error: {str(e)}", parse_mode=None)
+        await message.reply_text(f"❌ Error: {str(e)}")
 
 @restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -338,7 +337,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         symbol = query.data.split('_', 1)[1] 
         await query.edit_message_text(f"⏱️ SELECT TIMEFRAME FOR {symbol}:", reply_markup=get_timeframe_menu(symbol))
     elif query.data.startswith('tf_'):
-        # 🚨 CHECK THE LOCK BEFORE ANALYZING 🚨
         if analysis_lock.locked():
             await query.answer("⏳ The AI is already analyzing a trade. Please wait.", show_alert=True)
             return
@@ -346,7 +344,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = query.data.split('_')
         tf_type, symbol = parts[1], parts[2]
         
-        # Lock and process
         async with analysis_lock:
             await query.edit_message_text(f"🔍 Analyzing {symbol} on {tf_type}...\nPlease wait.", reply_markup=None)
             await run_analysis(query.message, symbol, tf_type)
