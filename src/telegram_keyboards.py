@@ -60,7 +60,6 @@ def get_indices_menu():
     keyboard = [
         [InlineKeyboardButton("GOLD (XAUUSD)", callback_data='pair_GC=F'),
          InlineKeyboardButton("US100 (Nasdaq)", callback_data='pair_NDX')],
-        [InlineKeyboardButton("SPX (S&P500)", callback_data='pair_GSPC')],
         [InlineKeyboardButton("⬅️ Back", callback_data='menu_market')]
     ]
     return InlineKeyboardMarkup(keyboard)
