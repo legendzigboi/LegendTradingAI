@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 client = OpenAI(
     api_key=os.environ.get("GROQ_API_KEY", ""),
     base_url="https://api.groq.com/openai/v1",
-    timeout=5.0 # 🚨 STRICT TIMEOUT 🚨
+    timeout=5.0
 )
 
 def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reason):
@@ -39,7 +39,7 @@ def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reas
 
     try:
         response = client.chat.completions.create(
-            model="llama3-8b-8192", # Free fast model
+            model="llama-3.1-8b-instant", # 🚨 UPDATED TO NEW GROQ MODEL 🚨
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=100
@@ -52,8 +52,11 @@ def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reas
             reason = output.split("REASON:")[-1].strip()
             return False, reason
         else:
-            return True, "Deep Research Approved"
+            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else "Approved by AI"
+            return True, reason
             
     except Exception as e:
-        logger.error(f"Deep Researcher Error: {e}")
-        return True, "AI Timeout/Error, falling back to normal execution."
+        # 🚨 LOG THE EXACT ERROR SO WE CAN SEE IT IN RENDER 🚨
+        error_msg = str(e)
+        logger.error(f"Deep Researcher Error: {error_msg}")
+        return True, f"AI Error: {error_msg[:50]}..."
