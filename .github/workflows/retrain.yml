@@ -1,0 +1,32 @@
+name: Weekly Model Retrain
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Every Sunday at Midnight UTC
+  workflow_dispatch: # Allows you to run it manually from the GitHub website
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install xgboost pandas numpy requests yfinance
+
+      - name: Run Training Script
+        run: python train_all_models.py
+
+      - name: Commit and Push New Models
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config user.email 'action@github.com'
+          git add -f models/v0.2/
+          git commit -m "Auto-Retrain: Updated models $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git push
