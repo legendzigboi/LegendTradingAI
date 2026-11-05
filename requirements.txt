@@ -7,6 +7,6 @@ Flask
 Pillow
 psycopg2-binary>=2.9.12
 openai
-scikit-learn
-lightgbm
-joblib
+scikit-learn==1.3.2
+lightgbm==4.1.0
+joblib==1.3.2
