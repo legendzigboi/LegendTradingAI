@@ -101,7 +101,7 @@ async def run_analysis(message, symbol, timeframe):
             model_name, display_tf = res['engine'], res['timeframe']
         else:
             safe_symbol = symbol.replace("=", "_")
-            model_name = f"v0.2_{safe_symbol}_{timeframe}_ensemble.pkl"
+            model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
             model_path = MODEL_DIR / model_name
             
             if not model_path.exists():
@@ -113,12 +113,12 @@ async def run_analysis(message, symbol, timeframe):
                 
             if not model_path.exists():
                 fallback_tf = "1h"
-                model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
+                model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h1_long.json"
                 model_path = MODEL_DIR / model_name
                 if model_path.exists(): display_tf = fallback_tf
                 else:
                     fallback_tf = "5m"
-                    model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
+                    model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h1_long.json"
                     model_path = MODEL_DIR / model_name
                     if model_path.exists(): display_tf = fallback_tf
                     else:
