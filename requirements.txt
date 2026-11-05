@@ -8,9 +8,9 @@ psycopg2-binary>=2.9.12
 openai
 pandas
 numpy
-xgboost==2.0.3
 mplfinance
 yfinance
-scikit-learn
 lightgbm
 joblib
+scikit-learn==1.5.2
+xgboost>=2.1.4
