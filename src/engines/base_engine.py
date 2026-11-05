@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from src.live_features import get_latest_features, fetch_klines
-from src.model_registry import get_model
+from src.model_registry import get_model, get_model_error
 from src.trade_planner import build_trade_plan
 
 logger = logging.getLogger(__name__)
@@ -16,11 +16,9 @@ class BaseEngine:
         tf = timeframe or self.default_timeframe
         safe_symbol = symbol.replace("=", "_")
         
-        # 1. Try Ensemble (.pkl)
         model_name = f"v0.2_{safe_symbol}_{tf}_ensemble.pkl"
         model_path = MODEL_DIR / model_name
         
-        # 2. Fallback to XGBoost (.json)
         if not model_path.exists():
             model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
             model_path = MODEL_DIR / model_name
@@ -28,7 +26,6 @@ class BaseEngine:
                 model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
                 model_path = MODEL_DIR / model_name
                 
-        # 3. Final fallback to 5m/1h if the specific one is missing
         if not model_path.exists():
             fallback_tf = "1h" if tf != "1h" else "5m"
             model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
@@ -36,11 +33,12 @@ class BaseEngine:
             if model_path.exists():
                 tf = fallback_tf
             else:
-                return {"error": f"Model {model_name} missing"}
+                return {"error": f"Missing: {model_name}"}
 
         model = get_model(model_path)
         if not model:
-            return {"error": f"Model {model_name} failed to load"}
+            real_err = get_model_error(model_path)
+            return {"error": f"Failed to load {model_name} -> {real_err}"}
 
         try:
             feats, _ = get_latest_features(symbol, tf)
@@ -65,12 +63,4 @@ class BaseEngine:
                 "features": feats
             }
         except Exception as e:
-            return {"error": str(e)}
-
-class TrendEngine(BaseEngine):
-    def __init__(self):
-        super().__init__("Legend Trend", "15m")
-
-class ScalperEngine(BaseEngine):
-    def __init__(self):
-        super().__init__("Legend Scalper", "5m")
+            return {"error": f"Math Error: {str(e)[:30]}"}
