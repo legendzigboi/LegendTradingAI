@@ -16,9 +16,11 @@ class BaseEngine:
         tf = timeframe or self.default_timeframe
         safe_symbol = symbol.replace("=", "_")
         
+        # Try Ensemble (.pkl) first
         model_name = f"v0.2_{safe_symbol}_{tf}_ensemble.pkl"
         model_path = MODEL_DIR / model_name
         
+        # Fallback to XGBoost (.json)
         if not model_path.exists():
             model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
             model_path = MODEL_DIR / model_name
@@ -26,6 +28,7 @@ class BaseEngine:
                 model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
                 model_path = MODEL_DIR / model_name
                 
+        # Final fallback to different timeframe
         if not model_path.exists():
             fallback_tf = "1h" if tf != "1h" else "5m"
             model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
@@ -64,3 +67,12 @@ class BaseEngine:
             }
         except Exception as e:
             return {"error": f"Math Error: {str(e)[:30]}"}
+
+# 🚨 THE MISSING CLASSES ARE BACK 🚨
+class TrendEngine(BaseEngine):
+    def __init__(self):
+        super().__init__("Legend Trend", "15m")
+
+class ScalperEngine(BaseEngine):
+    def __init__(self):
+        super().__init__("Legend Scalper", "5m")
