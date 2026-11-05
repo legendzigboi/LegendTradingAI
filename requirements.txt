@@ -11,3 +11,6 @@ numpy
 xgboost==2.0.3
 mplfinance
 yfinance
+scikit-learn
+lightgbm
+joblib

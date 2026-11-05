@@ -1,3 +1,4 @@
+import joblib
 import xgboost as xgb
 import logging
 from pathlib import Path
@@ -16,10 +17,19 @@ def get_model(model_path):
         return None
 
     try:
-        model = xgb.XGBClassifier()
-        model.load_model(path)
+        if path.suffix == '.pkl':
+            model = joblib.load(path)
+            logger.info(f"Loaded Ensemble Model: {path.name}")
+        elif path.suffix == '.json':
+            model = xgb.XGBClassifier()
+            model.load_model(path)
+            logger.info(f"Loaded XGBoost Model: {path.name}")
+        else:
+            return None
+
         _cache[path_str] = model
         return model
+
     except Exception as e:
         logger.error(f"Error loading model {path.name}: {e}")
         return None

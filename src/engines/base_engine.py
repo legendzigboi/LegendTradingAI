@@ -16,19 +16,22 @@ class BaseEngine:
         tf = timeframe or self.default_timeframe
         safe_symbol = symbol.replace("=", "_")
         
-        # Try H1 models first (Crypto)
-        model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
+        # 🚨 TRY ENSEMBLE (.pkl) FIRST 🚨
+        model_name = f"v0.2_{safe_symbol}_{tf}_ensemble.pkl"
         model_path = MODEL_DIR / model_name
         
-        # If H1 doesn't exist, fallback to H10 (Forex/Stocks)
+        # If Ensemble doesn't exist, fallback to XGBoost (.json)
         if not model_path.exists():
-            model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
+            model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
             model_path = MODEL_DIR / model_name
-            
+            if not model_path.exists():
+                model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
+                model_path = MODEL_DIR / model_name
+                
         # Final fallback to different timeframe if the specific one is missing
         if not model_path.exists():
             fallback_tf = "1h" if tf != "1h" else "5m"
-            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
+            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
             model_path = MODEL_DIR / model_name
             if model_path.exists():
                 tf = fallback_tf
