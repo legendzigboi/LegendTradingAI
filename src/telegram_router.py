@@ -27,7 +27,7 @@ from src.sr_engine import check_support_resistance
 from src.fear_greed_engine import get_crypto_fear_greed
 from src.regime_engine import check_market_regime
 from src.order_flow_engine import get_order_flow_imbalance, calculate_vwap_zscore
-from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend # 🚨 NEW IMPORT 🚨
+from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -105,8 +105,11 @@ async def run_analysis(message, symbol, timeframe):
             model_path = MODEL_DIR / model_name
             
             if not model_path.exists():
-                model_name = f"v0.2_{safe_symbol}_{timeframe}_ensemble.pkl"
+                model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
                 model_path = MODEL_DIR / model_name
+                if not model_path.exists():
+                    model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
+                    model_path = MODEL_DIR / model_name
                 
             if not model_path.exists():
                 fallback_tf = "1h"
@@ -179,7 +182,7 @@ async def run_analysis(message, symbol, timeframe):
         if direction == "SHORT" and sentiment == "BULLISH":
             await message.reply_text(f"⛔ **BLOCKED**\n\nAI wants to SELL, but News is BULLISH.", parse_mode="Markdown"); return
 
-        # 🚨 MACRO CHECKS (Crowd & DXY) 🚨
+        # 🚨 MACRO CHECKS (Now Non-Blocking Warnings) 🚨
         macro_text = ""
         if is_crypto:
             crowd = await asyncio.to_thread(get_crypto_crowd_sentiment, symbol)
@@ -190,7 +193,6 @@ async def run_analysis(message, symbol, timeframe):
                 else:
                     macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
         else:
-            # Forex/Stocks DXY Correlation
             dxy_trend = await asyncio.to_thread(get_dxy_trend)
             if (direction == "LONG" and dxy_trend == "UPTREND") or (direction == "SHORT" and dxy_trend == "DOWNTREND"):
                 macro_text = f"💵 DXY Trend: {dxy_trend} (⚠️ Warning)"
