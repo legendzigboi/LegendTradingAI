@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
-MIN_CONFIDENCE = 0.55 
+MIN_CONFIDENCE = 0.50 
 MIN_ATR_CRYPTO = 0.0010 
 MIN_ATR_FOREX = 0.0001  
 WAT = timezone(timedelta(hours=1))
@@ -185,19 +185,17 @@ async def run_analysis(message, symbol, timeframe):
             crowd = await asyncio.to_thread(get_crypto_crowd_sentiment, symbol)
             if crowd:
                 long_ratio, short_ratio = crowd
-                if direction == "LONG" and long_ratio > 0.75:
-                    await message.reply_text(f"⛔ **BLOCKED (CROWD)**\n\nRetail is 75%+ LONG. Whales will likely dump on them.", parse_mode="Markdown"); return
-                if direction == "SHORT" and short_ratio > 0.75:
-                    await message.reply_text(f"⛔ **BLOCKED (CROWD)**\n\nRetail is 75%+ SHORT. Whales will likely pump.", parse_mode="Markdown"); return
-                macro_text = f"🐋 Retail Long/Short: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
+                if (direction == "LONG" and long_ratio > 0.75) or (direction == "SHORT" and short_ratio > 0.75):
+                    macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}% (⚠️ Warning)"
+                else:
+                    macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
         else:
             # Forex/Stocks DXY Correlation
             dxy_trend = await asyncio.to_thread(get_dxy_trend)
-            if direction == "LONG" and dxy_trend == "UPTREND":
-                await message.reply_text(f"⛔ **BLOCKED (DXY)**\n\nDXY is in an UPTREND. Fighting the Dollar is dangerous.", parse_mode="Markdown"); return
-            if direction == "SHORT" and dxy_trend == "DOWNTREND":
-                await message.reply_text(f"⛔ **BLOCKED (DXY)**\n\nDXY is in a DOWNTREND. Shorting is risky.", parse_mode="Markdown"); return
-            macro_text = f"💵 DXY Trend: {dxy_trend}"
+            if (direction == "LONG" and dxy_trend == "UPTREND") or (direction == "SHORT" and dxy_trend == "DOWNTREND"):
+                macro_text = f"💵 DXY Trend: {dxy_trend} (⚠️ Warning)"
+            else:
+                macro_text = f"💵 DXY Trend: {dxy_trend}"
 
         regime_name = "UNKNOWN"
         try:

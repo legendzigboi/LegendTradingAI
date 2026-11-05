@@ -5,7 +5,6 @@ from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
-
 MODEL_DIR = Path("models/v0.2")
 
 class FusionEngine:
@@ -21,20 +20,18 @@ class FusionEngine:
             if "error" in trend_res: return {"error": f"Trend Engine failed: {trend_res['error']}"}
             if "error" in scalper_res: return {"error": f"Scalper Engine failed: {scalper_res['error']}"}
 
-            # Smart Conflict Resolution
+            # Smart Conflict Resolution (No MTF block)
             if trend_res["direction"] != scalper_res["direction"]:
                 t_conf = trend_res["confidence"]
                 s_conf = scalper_res["confidence"]
                 
-                # 🚨 NEW LOGIC: Override if one is clearly better (difference > 0.02) 🚨
-                if t_conf >= 0.65 and t_conf > s_conf + 0.02:
-                    final_dir, final_conf, engine_name = trend_res["direction"], t_conf, "Legend Fusion (Trend Override)"
+                # Just pick the one with the higher confidence, no matter what
+                if t_conf > s_conf:
+                    final_dir, final_conf, engine_name = trend_res["direction"], t_conf, "Legend Fusion (Trend Priority)"
                     plan, feats, display_tf = trend_res["plan"], trend_res["features"], trend_res["timeframe"]
-                elif s_conf >= 0.65 and s_conf > t_conf + 0.02:
-                    final_dir, final_conf, engine_name = scalper_res["direction"], s_conf, "Legend Fusion (Scalper Override)"
-                    plan, feats, display_tf = scalper_res["plan"], scalper_res["features"], scalper_res["timeframe"]
                 else:
-                    return {"status": "NO_TRADE", "reason": f"Conflict: Trend says {trend_res['direction']} ({t_conf*100:.0f}%), Scalper says {scalper_res['direction']} ({s_conf*100:.0f}%)", "symbol": symbol}
+                    final_dir, final_conf, engine_name = scalper_res["direction"], s_conf, "Legend Fusion (Scalper Priority)"
+                    plan, feats, display_tf = scalper_res["plan"], scalper_res["features"], scalper_res["timeframe"]
             else:
                 final_dir = trend_res["direction"]
                 final_conf = (trend_res["confidence"] + scalper_res["confidence"]) / 2
@@ -52,38 +49,6 @@ class FusionEngine:
             final_conf = res["confidence"]
             engine_name = f"Legend Trend ({timeframe})"
             plan, feats, display_tf = res["plan"], res["features"], res["timeframe"]
-
-        # Multi-Timeframe Confluence Check
-        htf_map = {"1m": "15m", "5m": "1h", "15m": "4h", "1h": "1d", "4h": "1d", "1d": None}
-        higher_tf = htf_map.get(display_tf)
-        
-        if higher_tf:
-            try:
-                safe_symbol = symbol.replace("=", "_")
-                htf_model_name = f"v0.2_{safe_symbol}_{higher_tf}_h1_long.json"
-                htf_model_path = MODEL_DIR / htf_model_name
-                if not htf_model_path.exists():
-                    htf_model_name = f"v0.2_{safe_symbol}_{higher_tf}_h10_long.json"
-                    htf_model_path = MODEL_DIR / htf_model_name
-
-                if htf_model_path.exists():
-                    htf_model = get_model(htf_model_path)
-                    if htf_model:
-                        htf_feats, _ = get_latest_features(symbol, higher_tf)
-                        htf_proba = htf_model.predict_proba([htf_feats])[0]
-                        htf_dir = "LONG" if htf_proba > 0.5 else "SHORT"
-                        htf_conf = htf_proba if htf_proba > 0.5 else (1 - htf_proba)
-
-                        if htf_dir != final_dir and htf_conf >= 0.60:
-                            return {
-                                "status": "NO_TRADE",
-                                "reason": f"MTF Conflict: Setup is {final_dir}, but {higher_tf} trend is strongly {htf_dir} ({htf_conf*100:.0f}%).",
-                                "symbol": symbol
-                            }
-                        else:
-                            engine_name += f" [MTF {higher_tf} Confirmed]"
-            except Exception as e:
-                logger.warning(f"MTF check failed, proceeding anyway: {e}")
 
         return {
             "status": "SUCCESS",
