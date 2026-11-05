@@ -65,7 +65,7 @@ def run_bot():
     bot_app.job_queue.run_daily(scheduled_scan_job, time=time(hour=19, minute=0))
 
     logger.info("🚀 Bot is starting polling...")
-    bot_app.run_polling()
+    bot_app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
