@@ -16,23 +16,24 @@ class BaseEngine:
         tf = timeframe or self.default_timeframe
         safe_symbol = symbol.replace("=", "_")
         
-        # Try the new H1 models first (Crypto)
+        # Try H1 models first (Crypto)
         model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
         model_path = MODEL_DIR / model_name
         
-        # If H1 doesn't exist, fallback to H10 (Forex)
+        # If H1 doesn't exist, fallback to H10 (Forex/Stocks)
         if not model_path.exists():
-            model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
+            model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
             model_path = MODEL_DIR / model_name
             
-        # 🚨 SMART TIMEFRAME FALLBACK 🚨
+        # Final fallback to different timeframe if the specific one is missing
         if not model_path.exists():
-            fallback_tf = "5m" if tf == "15m" else "1h"
-            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h1_long.json"
+            fallback_tf = "1h" if tf != "1h" else "5m"
+            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
             model_path = MODEL_DIR / model_name
             if model_path.exists():
-                logger.info(f"Fallback: Using {fallback_tf} model for {symbol} instead of {tf}")
-                tf = fallback_tf # Update tf so the trade plan matches
+                tf = fallback_tf
+            else:
+                return {"error": f"Model {model_name} missing or failed to load"}
 
         model = get_model(model_path)
         if not model:
@@ -52,7 +53,7 @@ class BaseEngine:
             plan = build_trade_plan(entry_price, direction, atr_14, tf)
 
             return {
-                "engine": f"{self.name} ({tf})", # Show which timeframe was used
+                "engine": f"{self.name} ({tf})",
                 "symbol": symbol,
                 "timeframe": tf,
                 "direction": direction,

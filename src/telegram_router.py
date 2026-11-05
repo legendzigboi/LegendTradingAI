@@ -105,24 +105,17 @@ async def run_analysis(message, symbol, timeframe):
             model_path = MODEL_DIR / model_name
             
             if not model_path.exists():
-                model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
+                model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
                 model_path = MODEL_DIR / model_name
-                if not model_path.exists():
-                    model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
-                    model_path = MODEL_DIR / model_name
                 
             if not model_path.exists():
-                fallback_tf = "1h"
-                model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h1_long.json"
+                fallback_tf = "1h" if timeframe != "1h" else "5m"
+                model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_long.json"
                 model_path = MODEL_DIR / model_name
-                if model_path.exists(): display_tf = fallback_tf
+                if model_path.exists():
+                    display_tf = fallback_tf
                 else:
-                    fallback_tf = "5m"
-                    model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h1_long.json"
-                    model_path = MODEL_DIR / model_name
-                    if model_path.exists(): display_tf = fallback_tf
-                    else:
-                        await message.reply_text(f"❌ Error: No models found for `{symbol}`."); return
+                    await message.reply_text(f"❌ Error: No models found for `{symbol}`."); return
             else:
                 display_tf = timeframe
             
