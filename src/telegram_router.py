@@ -27,7 +27,7 @@ from src.sr_engine import check_support_resistance
 from src.fear_greed_engine import get_crypto_fear_greed
 from src.regime_engine import check_market_regime
 from src.order_flow_engine import get_order_flow_imbalance, calculate_vwap_zscore
-from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend
+from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend, get_us10y_trend, get_spx_trend # 🚨 NEW IMPORTS 🚨
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -101,19 +101,23 @@ async def run_analysis(message, symbol, timeframe):
             model_name, display_tf = res['engine'], res['timeframe']
         else:
             safe_symbol = symbol.replace("=", "_")
-            model_name = f"v0.2_{safe_symbol}_{timeframe}_ensemble.pkl"
+            model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_ensemble.pkl"
             model_path = MODEL_DIR / model_name
-            
             if not model_path.exists():
-                model_name = f"v0.2_{safe_symbol}_{timeframe}_ensemble.pkl"
+                model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_ensemble.pkl"
+                model_path = MODEL_DIR / model_name
+            if not model_path.exists():
+                model_name = f"v0.2_{safe_symbol}_{timeframe}_h1_long.json"
+                model_path = MODEL_DIR / model_name
+            if not model_path.exists():
+                model_name = f"v0.2_{safe_symbol}_{timeframe}_h10_long.json"
                 model_path = MODEL_DIR / model_name
                 
             if not model_path.exists():
                 fallback_tf = "1h" if timeframe != "1h" else "5m"
-                model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
+                model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_ensemble.pkl"
                 model_path = MODEL_DIR / model_name
-                if model_path.exists():
-                    display_tf = fallback_tf
+                if model_path.exists(): display_tf = fallback_tf
                 else:
                     await message.reply_text(f"❌ Error: No models found for `{symbol}`."); return
             else:
@@ -131,7 +135,10 @@ async def run_analysis(message, symbol, timeframe):
             
             entry_price = float(candles[-2][4])
             atr_14 = feats[18] 
-            proba = model.predict_proba([feats])[0]
+            
+            proba_array = model.predict_proba([feats])[0]
+            proba = proba_array[1]
+            
             direction = "LONG" if proba > 0.5 else "SHORT"
             confidence = proba if proba > 0.5 else (1 - proba)
             
@@ -175,8 +182,12 @@ async def run_analysis(message, symbol, timeframe):
         if direction == "SHORT" and sentiment == "BULLISH":
             await message.reply_text(f"⛔ **BLOCKED**\n\nAI wants to SELL, but News is BULLISH.", parse_mode="Markdown"); return
 
-        # 🚨 MACRO CHECKS (Now Non-Blocking Warnings) 🚨
+        # 🚨 MACRO CHECKS (Cognimatic) 🚨
         macro_text = ""
+        dxy_text = ""
+        us10y_text = ""
+        spx_text = ""
+        
         if is_crypto:
             crowd = await asyncio.to_thread(get_crypto_crowd_sentiment, symbol)
             if crowd:
@@ -185,12 +196,31 @@ async def run_analysis(message, symbol, timeframe):
                     macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}% (⚠️ Warning)"
                 else:
                     macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
-        else:
-            dxy_trend = await asyncio.to_thread(get_dxy_trend)
-            if (direction == "LONG" and dxy_trend == "UPTREND") or (direction == "SHORT" and dxy_trend == "DOWNTREND"):
-                macro_text = f"💵 DXY Trend: {dxy_trend} (⚠️ Warning)"
+            
+            # Crypto checks SPX for risk-on/risk-off
+            spx = await asyncio.to_thread(get_spx_trend)
+            if (direction == "LONG" and spx == "DOWNTREND") or (direction == "SHORT" and spx == "UPTREND"):
+                spx_text = f"📈 SPX: {spx} (⚠️ Warning)"
             else:
-                macro_text = f"💵 DXY Trend: {dxy_trend}"
+                spx_text = f"📈 SPX: {spx}"
+
+        else:
+            # Forex checks DXY, US10Y, SPX
+            dxy = await asyncio.to_thread(get_dxy_trend)
+            if (direction == "LONG" and dxy == "UPTREND") or (direction == "SHORT" and dxy == "DOWNTREND"):
+                dxy_text = f"💵 DXY: {dxy} (⚠️ Warning)"
+            else:
+                dxy_text = f"💵 DXY: {dxy}"
+
+            us10y = await asyncio.to_thread(get_us10y_trend)
+            # Rising yields = stronger dollar = bearish for EUR/GBP
+            if (direction == "LONG" and us10y == "UPTREND") or (direction == "SHORT" and us10y == "DOWNTREND"):
+                us10y_text = f"🇺🇸 US10Y: {us10y} (⚠️ Warning)"
+            else:
+                us10y_text = f"🇺🇸 US10Y: {us10y}"
+                
+            spx = await asyncio.to_thread(get_spx_trend)
+            spx_text = f"📈 SPX: {spx}"
 
         regime_name = "UNKNOWN"
         try:
@@ -246,6 +276,13 @@ async def run_analysis(message, symbol, timeframe):
         suggested_lot = round(suggested_lot / 1000, 2) 
         if suggested_lot < 0.01: suggested_lot = 0.01
 
+        # Build the macro string dynamically
+        macro_lines = [macro_text]
+        if dxy_text: macro_lines.append(dxy_text)
+        if us10y_text: macro_lines.append(us10y_text)
+        if spx_text: macro_lines.append(spx_text)
+        final_macro_text = "\n".join([line for line in macro_lines if line])
+
         msg = (
             f"🤖 LEGEND TRADING AI\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -260,7 +297,7 @@ async def run_analysis(message, symbol, timeframe):
             f"📊 CONFIDENCE\n"
             f"{confidence*100:.1f}% ({quality})\n"
             f"*(Math: {base_confidence*100:.1f}% | Modifiers: {modifier_text})*\n"
-            f"{macro_text}\n"
+            f"{final_macro_text}\n"
             f"🐋 Order Flow: {flow_text}\n"
             f"📉 VWAP: {vwap_text}\n"
             f"📰 Sentiment: {sent_emoji} {sentiment}\n"
