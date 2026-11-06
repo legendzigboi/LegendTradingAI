@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from src.signal_db import get_pending_trades, close_trade, update_stop_loss
 from src.live_features import fetch_klines
 from src.telegram_notify import send_message
-from src.critic_engine import analyze_losing_trade # 🚨 NEW IMPORT 🚨
+import asyncio
 
 async def check_trades(context=None):
     trades = get_pending_trades()
@@ -23,7 +23,8 @@ async def check_trades(context=None):
         hours_elapsed = (now - entry_time).total_seconds() / 3600
         
         try:
-            candles = fetch_klines(symbol, timeframe, limit=200)
+            # 🚨 ADD TIMEOUT TO PREVENT HANGS 🚨
+            candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, timeframe, 200), timeout=15.0)
         except Exception as e:
             print(f"Error fetching candles for {symbol}: {e}")
             continue
@@ -80,12 +81,11 @@ async def check_trades(context=None):
                 
             close_trade(t["id"], status, outcome_price, actual_return, now.isoformat())
             
-            # 🚨 AUTO-AUTOPSY TRIGGER 🚨
             autopsy_msg = ""
             if status == "LOSS":
+                from src.critic_engine import analyze_losing_trade
                 insight = analyze_losing_trade(t)
-                if insight:
-                    autopsy_msg = f"\n\n🧠 **Auto-Autopsy:**\n*{insight}*"
+                if insight: autopsy_msg = f"\n\n🧠 **Auto-Autopsy:**\n*{insight}*"
 
             msg = f"🔔 TRADE CLOSED: {symbol} (ID: {t['id']})\nResult: {status}\nReturn: {actual_return*100:+.2f}%{autopsy_msg}"
             send_message(msg)

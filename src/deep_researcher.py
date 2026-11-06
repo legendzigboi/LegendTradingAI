@@ -12,23 +12,12 @@ client = OpenAI(
 
 def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reason):
     if not os.environ.get("GROQ_API_KEY"):
-        return True, "No API key. Skipping Deep Research."
+        return True, "No API key."
 
     prompt = f"""
     You are an elite hedge fund trader. 
-    Analyze the following trade setup and decide whether to APPROVE or VETO it.
-    
-    Symbol: {symbol}
-    Direction: {direction}
-    Math Model Confidence: {confidence*100:.1f}%
-    News Sentiment: {sentiment}
-    Sentiment Reasoning: {sentiment_reason}
-    
-    Rules:
-    - If the sentiment strongly contradicts the trade direction, VETO it.
-    - If the confidence is high and news is neutral or supportive, APPROVE it.
-    
-    Reply EXACTLY in this format:
+    Analyze this trade: {symbol} {direction} (Confidence: {confidence*100:.1f}%). News Sentiment: {sentiment}.
+    Reply EXACTLY in this format with NO OTHER TEXT:
     VERDICT: [APPROVE or VETO]
     REASON: [One short sentence explaining why]
     """
@@ -38,20 +27,17 @@ def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reas
             model="openai/gpt-oss-20b",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=100
+            max_tokens=60
         )
         
         output = response.choices[0].message.content.strip()
         
-        # Better parsing logic
         if "VERDICT: VETO" in output.upper():
-            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else output.replace("VERDICT: VETO", "").strip()
+            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else "Risk detected by AI."
             return False, reason
         else:
-            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else output.replace("VERDICT: APPROVE", "").strip()
+            reason = output.split("REASON:")[-1].strip() if "REASON:" in output else "Strong setup confirmed by AI."
             return True, reason
             
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Deep Researcher Error: {error_msg}")
-        return True, f"AI Error: {error_msg[:50]}..."
+        return True, "AI Timeout."

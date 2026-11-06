@@ -19,17 +19,17 @@ class FusionEngine:
             valid_results = [r for r in [res_1h, res_15m, res_5m] if "error" not in r]
 
             if not valid_results:
-                # 🚨 REVEAL THE EXACT ERRORS 🚨
                 errs = []
-                if "error" in res_1h: errs.append(f"1h: {res_1h['error']}")
-                if "error" in res_15m: errs.append(f"15m: {res_15m['error']}")
-                if "error" in res_5m: errs.append(f"5m: {res_5m['error']}")
-                return {"error": " | ".join(errs)}
+                if "error" in res_1h: errs.append("1h failed")
+                if "error" in res_15m: errs.append("15m failed")
+                if "error" in res_5m: errs.append("5m failed")
+                return {"error": f"All engines failed ({', '.join(errs)})"}
 
+            # Find the highest confidence setup
             best_setup = max(valid_results, key=lambda x: x["confidence"])
 
-            if best_setup["confidence"] < 0.55:
-                return {"status": "NO_TRADE", "reason": f"Highest confidence was only {best_setup['confidence']*100:.1f}% on {best_setup['timeframe']}.", "symbol": symbol}
+            if best_setup["confidence"] < 0.50:
+                return {"status": "NO_TRADE", "reason": f"Highest was {best_setup['confidence']*100:.1f}% on {best_setup['timeframe']}.", "symbol": symbol}
 
             return {
                 "status": "SUCCESS",
