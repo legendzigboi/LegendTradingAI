@@ -10,13 +10,26 @@ client = OpenAI(
     timeout=5.0
 )
 
-def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reason):
+def deep_research_trade(symbol, direction, confidence, sentiment, sentiment_reason, regime, retail_info):
     if not os.environ.get("GROQ_API_KEY"):
         return True, "No API key."
 
     prompt = f"""
-    You are an elite hedge fund trader. 
-    Analyze this trade: {symbol} {direction} (Confidence: {confidence*100:.1f}%). News Sentiment: {sentiment}.
+    You are an elite risk manager. Analyze this trade and decide to APPROVE or VETO.
+    
+    Symbol: {symbol}
+    Direction: {direction}
+    Confidence: {confidence*100:.1f}%
+    News Sentiment: {sentiment}
+    Market Regime: {regime}
+    Retail Sentiment: {retail_info}
+    
+    Rules:
+    - If direction is LONG but Regime is DOWNTREND, VETO.
+    - If direction is SHORT but Regime is UPTREND, VETO.
+    - If retail is 75%+ in the same direction as the trade, VETO (crowd trap).
+    - If Confidence is below 60%, VETO.
+    
     Reply EXACTLY in this format with NO OTHER TEXT:
     VERDICT: [APPROVE or VETO]
     REASON: [One short sentence explaining why]

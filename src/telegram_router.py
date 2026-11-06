@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 AUTHORIZED_USER_IDS = [int(env.get("TELEGRAM_CHAT_ID") or 0)]
 MODEL_DIR = Path("models/v0.2")
-MIN_CONFIDENCE = 0.50 
+MIN_CONFIDENCE = 0.60 
 MIN_ATR_CRYPTO = 0.0010 
 MIN_ATR_FOREX = 0.0001  
 WAT = timezone(timedelta(hours=1))
@@ -192,8 +192,12 @@ async def run_analysis(message, symbol, timeframe):
             crowd = await asyncio.to_thread(get_crypto_crowd_sentiment, symbol)
             if crowd:
                 long_ratio, short_ratio = crowd
-                if (direction == "LONG" and long_ratio > 0.75) or (direction == "SHORT" and short_ratio > 0.75):
-                    macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}% (⚠️ Warning)"
+                if direction == "LONG" and long_ratio > 0.70:
+                    await message.reply_text(f"⛔ **BLOCKED (CROWD)**\n\nRetail is 70%+ LONG. Whales will dump.", parse_mode="Markdown")
+                    return
+                if direction == "SHORT" and short_ratio > 0.70:
+                    await message.reply_text(f"⛔ **BLOCKED (CROWD)**\n\nRetail is 70%+ SHORT. Whales will pump.", parse_mode="Markdown")
+                    return
                 else:
                     macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
             
@@ -248,7 +252,7 @@ async def run_analysis(message, symbol, timeframe):
         await message.reply_text("🧠 Running Deep Research...")
         try:
             research_approved, research_reason = await asyncio.wait_for(
-                asyncio.to_thread(deep_research_trade, symbol, direction, confidence, sentiment, sentiment_reason),
+                asyncio.to_thread(deep_research_trade, symbol, direction, confidence, sentiment, sentiment_reason, regime_name, macro_text),
                 timeout=6.0
             )
         except asyncio.TimeoutError:
