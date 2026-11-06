@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from src.live_features import get_latest_features, fetch_klines
-from src.model_registry import get_model, get_model_error
+from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
 
 logger = logging.getLogger(__name__)
@@ -16,22 +16,29 @@ class BaseEngine:
         tf = timeframe or self.default_timeframe
         safe_symbol = symbol.replace("=", "_")
         
-        # Try Ensemble (.pkl) first
-        model_name = f"v0.2_{safe_symbol}_{tf}_ensemble.pkl"
+        # 1. Try Ensemble Crypto (.pkl with h1)
+        model_name = f"v0.2_{safe_symbol}_{tf}_h1_ensemble.pkl"
         model_path = MODEL_DIR / model_name
         
-        # Fallback to XGBoost (.json)
+        # 2. Try Ensemble Forex/Stocks (.pkl with h10)
+        if not model_path.exists():
+            model_name = f"v0.2_{safe_symbol}_{tf}_h10_ensemble.pkl"
+            model_path = MODEL_DIR / model_name
+
+        # 3. Fallback to XGBoost Crypto (.json with h1)
         if not model_path.exists():
             model_name = f"v0.2_{safe_symbol}_{tf}_h1_long.json"
             model_path = MODEL_DIR / model_name
-            if not model_path.exists():
-                model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
-                model_path = MODEL_DIR / model_name
+            
+        # 4. Fallback to XGBoost Forex (.json with h10)
+        if not model_path.exists():
+            model_name = f"v0.2_{safe_symbol}_{tf}_h10_long.json"
+            model_path = MODEL_DIR / model_name
                 
-        # Final fallback to different timeframe
+        # 5. Final fallback to different timeframe
         if not model_path.exists():
             fallback_tf = "1h" if tf != "1h" else "5m"
-            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_ensemble.pkl"
+            model_name = f"v0.2_{safe_symbol}_{fallback_tf}_h10_ensemble.pkl"
             model_path = MODEL_DIR / model_name
             if model_path.exists():
                 tf = fallback_tf
@@ -40,8 +47,7 @@ class BaseEngine:
 
         model = get_model(model_path)
         if not model:
-            real_err = get_model_error(model_path)
-            return {"error": f"Failed to load {model_name} -> {real_err}"}
+            return {"error": f"Failed to load {model_name}"}
 
         try:
             feats, _ = get_latest_features(symbol, tf)
@@ -49,7 +55,9 @@ class BaseEngine:
             entry_price = float(candles[-2][4])
             atr_14 = feats[18]
 
-            proba = model.predict_proba([feats])[0]
+            # 🚨 THE MATH FIX 🚨
+            proba_array = model.predict_proba([feats])[0]
+            proba = proba_array[1] 
 
             direction = "LONG" if proba > 0.5 else "SHORT"
             confidence = proba if proba > 0.5 else (1 - proba)
@@ -66,9 +74,8 @@ class BaseEngine:
                 "features": feats
             }
         except Exception as e:
-            return {"error": f"Math Error: {str(e)[:30]}"}
+            return {"error": f"Math Error: {str(e)[:50]}"}
 
-# 🚨 THE MISSING CLASSES ARE BACK 🚨
 class TrendEngine(BaseEngine):
     def __init__(self):
         super().__init__("Legend Trend", "15m")
