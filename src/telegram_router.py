@@ -13,6 +13,7 @@ from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
 from src.risk_engine import check_circuit_breaker, set_pause
 from src.state import SYSTEM_PAUSED
+from src.kelly_engine import calculate_kelly_position_size
 from src.chart_generator import generate_chart
 from src.banner_generator import generate_banner
 from src.image_composer import combine_banner_and_chart
