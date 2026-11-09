@@ -14,7 +14,6 @@ from src.config import env
 from src.signal_db import init_db
 from src.telegram_router import start_command, signals_command, button_handler
 from src.lifecycle_tracker import check_trades
-from src.auto_trader import run_auto_trader # 🚨 NEW IMPORT 🚨
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,7 +65,6 @@ def run_bot():
     
     # 🚨 START THE 3-DAY AUTO-TRADER 🚨
     # Runs once, 10 seconds after the bot boots up.
-    bot_app.job_queue.run_once(run_auto_trader, when=10)
 
     logger.info("🚀 Bot is starting polling...")
     bot_app.run_polling(drop_pending_updates=True)
