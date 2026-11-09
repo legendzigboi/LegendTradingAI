@@ -271,14 +271,41 @@ async def run_analysis(message, symbol, timeframe):
         quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
         sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
 
-        # Position Sizing
+
+        # 🚨 KELLY CRITERION POSITION SIZING 🚨
+        hist_win_rate = await asyncio.to_thread(get_historical_win_rate, symbol, display_tf)
+        
+        # Calculate Risk:Reward (e.g., if TP is 2x SL, R:R is 2.0)
+        risk_distance = abs(plan['entry'] - plan['stop_loss'])
+        reward_distance = abs(plan['tp1'] - plan['entry'])
+        rr_ratio = reward_distance / risk_distance if risk_distance > 0 else 1.0
+        
+        # Default risk is 1%
+        base_risk_pct = 0.01 
+        
+        if hist_win_rate is not None and hist_win_rate > 0:
+            # Half-Kelly Formula
+            win_prob = hist_win_rate
+            lose_prob = 1 - win_prob
+            kelly_pct = (win_prob - (lose_prob / rr_ratio)) / 2
+            
+            # Cap risk between 0.1% and 2.5%
+            base_risk_pct = max(0.001, min(0.025, kelly_pct))
+            
         account_size = 1000
-        risk_percent = 0.01
-        risk_amount = account_size * risk_percent
-        sl_distance_pct = abs(plan["entry"] - plan["stop_loss"]) / plan["entry"]
-        suggested_lot = risk_amount / (plan["entry"] * sl_distance_pct) if sl_distance_pct > 0 else 0
+        risk_amount = account_size * base_risk_pct
+        sl_distance_pct = risk_distance / plan['entry']
+        suggested_lot = risk_amount / (plan['entry'] * sl_distance_pct) if sl_distance_pct > 0 else 0
+        
+        # Adjust lot size based on broker (scaling down for display)
         suggested_lot = round(suggested_lot / 1000, 2) 
         if suggested_lot < 0.01: suggested_lot = 0.01
+
+        sizing_text = f"Risk: {base_risk_pct*100:.2f}% of 000 = "
+        if hist_win_rate is not None:
+            sizing_text += f"
+*(Based on {hist_win_rate*100:.1f}% historical win rate)*"
+
 
         # Build the macro string dynamically
         macro_lines = [macro_text]

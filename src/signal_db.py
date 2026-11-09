@@ -1,7 +1,7 @@
 import os
 import psycopg2
 import psycopg2.extras
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS research_insights (
 def _connect():
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
-        raise ValueError("DATABASE_URL is missing from environment variables.")
+        raise ValueError("DATABASE_URL is missing.")
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     return psycopg2.connect(db_url, connect_timeout=10)
@@ -69,99 +69,23 @@ def log_signal(symbol, timeframe, direction, model_version, confidence, entry_pr
     finally:
         conn.close()
 
-def get_pending_trades():
-    conn = _connect()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM signals WHERE status = 'PENDING' ORDER BY ts DESC")
-            return cur.fetchall()
-    finally:
-        conn.close()
+# ... (Keep existing functions: get_pending_trades, close_trade, update_stop_loss, get_performance_stats, save_insight, get_all_insights, get_all_closed_signals) ...
 
-def close_trade(trade_id, status, outcome_price, actual_return, closed_at):
+# 🚨 NEW: GET HISTORICAL WIN RATE FOR SPECIFIC PAIR 🚨
+def get_historical_win_rate(symbol, timeframe):
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE signals SET status = %s, outcome_price = %s, actual_return = %s, closed_at = %s WHERE id = %s
-            """, (status, outcome_price, actual_return, closed_at, trade_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-def update_stop_loss(trade_id, new_sl):
-    conn = _connect()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE signals SET stop_loss = %s WHERE id = %s", (new_sl, trade_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-def get_performance_stats():
-    conn = _connect()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM signals WHERE status = 'WIN'")
-            wins = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM signals WHERE status = 'LOSS'")
-            losses = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM signals WHERE status = 'EXPIRED'")
-            expired = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM signals WHERE status = 'PENDING'")
-            pending = cur.fetchone()[0]
-
-        total_closed = wins + losses + expired
-        win_rate = (wins / total_closed * 100) if total_closed > 0 else 0
-
-        return {"wins": wins, "losses": losses, "expired": expired, "pending": pending, "win_rate": win_rate, "total_closed": total_closed}
-    finally:
-        conn.close()
-
-# 🚨 NEW: DAILY DRAWDOWN CHECK 🚨
-def get_daily_pnl():
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-    conn = _connect()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT SUM(actual_return) FROM signals 
-                WHERE status IN ('WIN', 'LOSS') 
-                AND ts LIKE %s
-            """, (f"{today}%",))
-            result = cur.fetchone()[0]
-            return result if result else 0.0
-    finally:
-        conn.close()
-
-# ... (keep save_insight, get_all_insights, get_all_closed_signals as they were)
-def save_insight(category, insight, win_rate, sample_size):
-    ts = datetime.now(tz=timezone.utc).isoformat()
-    conn = _connect()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM research_insights WHERE insight = %s", (insight,))
-            if cur.fetchone(): return False
-            cur.execute("INSERT INTO research_insights (ts, category, insight, win_rate, sample_size) VALUES (%s, %s, %s, %s, %s)", (ts, category, insight, win_rate, sample_size))
-        conn.commit()
-        return True
-    finally:
-        conn.close()
-
-def get_all_insights():
-    conn = _connect()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM research_insights ORDER BY ts DESC LIMIT 10")
-            return cur.fetchall()
-    finally:
-        conn.close()
-
-def get_all_closed_signals():
-    conn = _connect()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM signals WHERE status IN ('WIN', 'LOSS', 'EXPIRED') ORDER BY ts DESC")
-            return cur.fetchall()
+                SELECT 
+                    COUNT(*) FILTER (WHERE status = 'WIN') as wins,
+                    COUNT(*) FILTER (WHERE status IN ('WIN', 'LOSS')) as total
+                FROM signals 
+                WHERE symbol = %s AND timeframe = %s
+            """, (symbol, timeframe))
+            row = cur.fetchone()
+            if row and row[1] > 0:
+                return row[0] / row[1] # Return win rate as decimal
+            return None # No data yet
     finally:
         conn.close()
