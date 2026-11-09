@@ -1,8 +1,8 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from src.risk_engine import SYSTEM_PAUSED
+import src.state as state
 
 def get_main_menu():
-    if SYSTEM_PAUSED:
+    if state.SYSTEM_PAUSED:
         status_button = InlineKeyboardButton("▶️ RESUME SIGNALS", callback_data='menu_resume')
     else:
         status_button = InlineKeyboardButton("🛑 PAUSE SIGNALS", callback_data='menu_pause')

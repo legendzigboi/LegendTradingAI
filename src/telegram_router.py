@@ -7,11 +7,12 @@ from datetime import datetime, timezone, timedelta
 from telegram import Update, BotCommand
 from telegram.ext import ContextTypes
 from src.config import env
-from src.signal_db import init_db, log_signal, get_pending_trades, get_performance_stats, get_all_insights
+from src.signal_db import init_db, log_signal, get_pending_trades, get_performance_stats, get_all_insights, get_historical_win_rate
 from src.live_features import get_latest_features, fetch_klines
 from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
 from src.risk_engine import check_circuit_breaker, set_pause
+from src.state import SYSTEM_PAUSED
 from src.chart_generator import generate_chart
 from src.banner_generator import generate_banner
 from src.image_composer import combine_banner_and_chart
@@ -27,7 +28,7 @@ from src.sr_engine import check_support_resistance
 from src.fear_greed_engine import get_crypto_fear_greed
 from src.regime_engine import check_market_regime
 from src.order_flow_engine import get_order_flow_imbalance, calculate_vwap_zscore
-from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend, get_us10y_trend, get_spx_trend # 🚨 NEW IMPORTS 🚨
+from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend, get_us10y_trend, get_spx_trend
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -151,7 +152,6 @@ async def run_analysis(message, symbol, timeframe):
         if atr_val < min_atr:
             await message.reply_text(f"⚪ **NO TRADE**\n\nMarket is too flat (Low Volatility).", parse_mode="Markdown"); return
 
-        # Predictive Modifiers
         base_confidence = confidence
         flow_text = "N/A"
         vwap_text = "N/A"
@@ -182,7 +182,6 @@ async def run_analysis(message, symbol, timeframe):
         if direction == "SHORT" and sentiment == "BULLISH":
             await message.reply_text(f"⛔ **BLOCKED**\n\nAI wants to SELL, but News is BULLISH.", parse_mode="Markdown"); return
 
-        # 🚨 MACRO CHECKS (Cognimatic) 🚨
         macro_text = ""
         dxy_text = ""
         us10y_text = ""
@@ -198,10 +197,8 @@ async def run_analysis(message, symbol, timeframe):
                 if direction == "SHORT" and short_ratio > 0.70:
                     await message.reply_text(f"⛔ **BLOCKED (CROWD)**\n\nRetail is 70%+ SHORT. Whales will pump.", parse_mode="Markdown")
                     return
-                else:
-                    macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
+                macro_text = f"🐋 Retail: {long_ratio*100:.0f}% / {short_ratio*100:.0f}%"
             
-            # Crypto checks SPX for risk-on/risk-off
             spx = await asyncio.to_thread(get_spx_trend)
             if (direction == "LONG" and spx == "DOWNTREND") or (direction == "SHORT" and spx == "UPTREND"):
                 spx_text = f"📈 SPX: {spx} (⚠️ Warning)"
@@ -209,7 +206,6 @@ async def run_analysis(message, symbol, timeframe):
                 spx_text = f"📈 SPX: {spx}"
 
         else:
-            # Forex checks DXY, US10Y, SPX
             dxy = await asyncio.to_thread(get_dxy_trend)
             if (direction == "LONG" and dxy == "UPTREND") or (direction == "SHORT" and dxy == "DOWNTREND"):
                 dxy_text = f"💵 DXY: {dxy} (⚠️ Warning)"
@@ -217,7 +213,6 @@ async def run_analysis(message, symbol, timeframe):
                 dxy_text = f"💵 DXY: {dxy}"
 
             us10y = await asyncio.to_thread(get_us10y_trend)
-            # Rising yields = stronger dollar = bearish for EUR/GBP
             if (direction == "LONG" and us10y == "UPTREND") or (direction == "SHORT" and us10y == "DOWNTREND"):
                 us10y_text = f"🇺🇸 US10Y: {us10y} (⚠️ Warning)"
             else:
@@ -231,6 +226,13 @@ async def run_analysis(message, symbol, timeframe):
             regime_candles = await asyncio.wait_for(asyncio.to_thread(fetch_klines, symbol, display_tf, 100), timeout=10.0)
             _, regime_name, _ = await asyncio.to_thread(check_market_regime, regime_candles)
         except: pass
+
+        if regime_name == "DOWNTREND" and direction == "LONG":
+            await message.reply_text(f"⛔ **BLOCKED (TREND)**\n\nMarket is in a DOWNTREND. Refusing to BUY.", parse_mode="Markdown")
+            return
+        if regime_name == "UPTREND" and direction == "SHORT":
+            await message.reply_text(f"⛔ **BLOCKED (TREND)**\n\nMarket is in an UPTREND. Refusing to SELL.", parse_mode="Markdown")
+            return
 
         fg_text = "N/A"
         if is_crypto:
@@ -271,43 +273,29 @@ async def run_analysis(message, symbol, timeframe):
         quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
         sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
 
-
-        # 🚨 KELLY CRITERION POSITION SIZING 🚨
         hist_win_rate = await asyncio.to_thread(get_historical_win_rate, symbol, display_tf)
-        
-        # Calculate Risk:Reward (e.g., if TP is 2x SL, R:R is 2.0)
         risk_distance = abs(plan['entry'] - plan['stop_loss'])
         reward_distance = abs(plan['tp1'] - plan['entry'])
         rr_ratio = reward_distance / risk_distance if risk_distance > 0 else 1.0
-        
-        # Default risk is 1%
         base_risk_pct = 0.01 
         
         if hist_win_rate is not None and hist_win_rate > 0:
-            # Half-Kelly Formula
             win_prob = hist_win_rate
             lose_prob = 1 - win_prob
             kelly_pct = (win_prob - (lose_prob / rr_ratio)) / 2
-            
-            # Cap risk between 0.1% and 2.5%
             base_risk_pct = max(0.001, min(0.025, kelly_pct))
             
         account_size = 1000
         risk_amount = account_size * base_risk_pct
         sl_distance_pct = risk_distance / plan['entry']
         suggested_lot = risk_amount / (plan['entry'] * sl_distance_pct) if sl_distance_pct > 0 else 0
-        
-        # Adjust lot size based on broker (scaling down for display)
         suggested_lot = round(suggested_lot / 1000, 2) 
         if suggested_lot < 0.01: suggested_lot = 0.01
 
-        sizing_text = f"Risk: {base_risk_pct*100:.2f}% of 000 = "
+        sizing_text = f"Risk: {base_risk_pct*100:.2f}% of $1000 = ${risk_amount:.2f}"
         if hist_win_rate is not None:
-            sizing_text += f"
-*(Based on {hist_win_rate*100:.1f}% historical win rate)*"
+            sizing_text += f"\n*(Based on {hist_win_rate*100:.1f}% historical win rate)*"
 
-
-        # Build the macro string dynamically
         macro_lines = [macro_text]
         if dxy_text: macro_lines.append(dxy_text)
         if us10y_text: macro_lines.append(us10y_text)
@@ -341,7 +329,7 @@ async def run_analysis(message, symbol, timeframe):
             f"SL: <code>{format_price(plan['stop_loss'])}</code>\n"
             f"Target: <code>{format_price(plan['tp1'])}</code>\n\n"
             f"💰 **POSITION SIZING**\n"
-            f"Risk: 1% of $1000 = $10\n"
+            f"{sizing_text}\n"
             f"Suggested Lot: <code>{suggested_lot}</code>\n\n"
             f"ID: {sig_id}"
         )
@@ -390,6 +378,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_resume':
         set_pause(False)
         await query.edit_message_text("🟢 SYSTEM RESUMED.", reply_markup=get_main_menu())
+
     elif query.data == 'menu_research':
         await query.edit_message_text("🔬 Running Research Lab...", reply_markup=None)
         result = await asyncio.to_thread(run_research_lab)
