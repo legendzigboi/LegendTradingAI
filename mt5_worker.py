@@ -1,5 +1,6 @@
 import os
 import time
+import subprocess
 import MetaTrader5 as mt5
 import logging
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
@@ -13,17 +14,41 @@ MT5_SERVER = os.environ.get("MT5_SERVER", "")
 MT5_PATH = r"C:\Program Files\MetaTrader 5\terminal64.exe"
 
 def main():
-    logger.info("Waiting 15 seconds for Windows to register MT5 installation...")
-    time.sleep(15) # Give Windows time to settle
-    
-    logger.info("Connecting to MT5...")
-    # 🚨 Added timeout=60000 (60 seconds) and explicit path 🚨
-    if not mt5.initialize(path=MT5_PATH, login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER, timeout=60000):
+    logger.info("Launching MT5 terminal in background...")
+    # 🚨 Explicitly start MT5 with login details 🚨
+    try:
+        subprocess.Popen([
+            MT5_PATH,
+            f"/login:{MT5_LOGIN}",
+            f"/password:{MT5_PASSWORD}",
+            f"/server:{MT5_SERVER}",
+            "/portable"  # Use portable mode to avoid registry issues
+        ])
+    except Exception as e:
+        logger.error(f"Failed to launch MT5: {e}")
+        return
+
+    logger.info("Waiting 20 seconds for MT5 to initialize...")
+    time.sleep(20)  # Give the terminal time to boot up and log in
+
+    logger.info("Connecting Python to MT5...")
+    # 🚨 The initialize call should now find the running terminal 🚨
+    if not mt5.initialize(path=MT5_PATH):
         logger.error(f"MT5 initialization failed: {mt5.last_error()}")
+        # Print a more detailed error if possible
         return
 
     logger.info("Connected to MT5!")
     
+    # Check if we are logged in
+    account_info = mt5.account_info()
+    if account_info is None:
+        logger.error("Connected but not logged in. Check credentials.")
+        mt5.shutdown()
+        return
+    logger.info(f"Logged in as: {account_info.login} on {account_info.server}")
+
+    # --- Your existing trade logic starts here ---
     positions = mt5.positions_get()
     if positions and len(positions) > 0:
         logger.info(f"Skipping: {len(positions)} trade(s) currently open on MT5.")
