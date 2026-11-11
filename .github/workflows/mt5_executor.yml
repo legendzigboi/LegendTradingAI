@@ -1,4 +1,4 @@
-name: MT5 Executor via Docker Bridge
+name: MT5 Executor
 
 on:
   schedule:
@@ -8,19 +8,19 @@ on:
 jobs:
   execute-trades:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Start MT5 Bridge Container
+        env:
+          LOGIN: ${{ secrets.MT5_LOGIN }}
+          PASS: ${{ secrets.MT5_PASSWORD }}
+          SERV: ${{ secrets.MT5_SERVER }}
         run: |
           docker pull liberatti/mt5bridge:latest
-          docker run -d --name mt5bridge \
-            -p 5000:5000 \
-            -e MT5_LOGIN="${{ secrets.MT5_LOGIN }}" \
-            -e MT5_PASSWORD="${{ secrets.MT5_PASSWORD }}" \
-            -e MT5_SERVER="${{ secrets.MT5_SERVER }}" \
-            liberatti/mt5bridge:latest
+          docker run -d --name mt5bridge -p 5000:5000 -e MT5_LOGIN="$LOGIN" -e MT5_PASSWORD="$PASS" -e MT5_SERVER="$SERV" liberatti/mt5bridge:latest
           echo "Waiting for MT5 Bridge to be ready..."
           sleep 30
 
