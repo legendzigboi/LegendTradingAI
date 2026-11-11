@@ -6,18 +6,19 @@ from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BRIDGE_URL = os.environ.get("MT5_BRIDGE_URL", "http://localhost:5000")
+# The bridge runs on localhost:5000 inside the GitHub Action
+BRIDGE_URL = os.environ.get("MT5_BRIDGE_URL", "http://localhost:5000/api")
 
 def main():
     logger.info(f"Connecting to MT5 Bridge at {BRIDGE_URL}...")
     
-    # 1. Check if the bridge is alive and logged in (using the correct endpoint)
+    # 1. Check if the bridge is alive and logged in (correct endpoint)
     try:
         resp = requests.get(f"{BRIDGE_URL}/account_info", timeout=10)
         if resp.status_code != 200:
             logger.error(f"Bridge returned error: {resp.text}")
             return
-        account_data = resp.json()
+        account_data = resp.json().get("data", {})
         logger.info(f"✅ Connected to account: {account_data.get('login')}")
     except Exception as e:
         logger.error(f"Failed to connect to bridge: {e}")
@@ -36,10 +37,10 @@ def main():
     sl = trade['stop_loss']
     tp = trade['take_profit']
 
-    # Get current price for the order (required by order_send)
+    # 3. Get current price for the order (correct endpoint uses path parameter)
     try:
-        price_resp = requests.get(f"{BRIDGE_URL}/symbol_info_tick?symbol={symbol}", timeout=10)
-        price_data = price_resp.json()
+        price_resp = requests.get(f"{BRIDGE_URL}/symbol_info_tick/{symbol}", timeout=10)
+        price_data = price_resp.json().get("data", {})
         if direction == "LONG":
             price = price_data.get("ask")
             order_type = "ORDER_TYPE_BUY"
@@ -50,30 +51,25 @@ def main():
         logger.error(f"Failed to get price for {symbol}: {e}")
         return
 
-    # 3. Send the trade command (using the correct endpoint and MT5 payload format)
+    # 4. Send the trade command (using the high-level helper endpoint)
     payload = {
-        "action": "TRADE_ACTION_DEAL",
         "symbol": symbol,
+        "order_type": "BUY" if direction == "LONG" else "SELL",
         "volume": float(lot),
-        "type": order_type,
         "price": float(price),
         "sl": float(sl),
         "tp": float(tp),
-        "deviation": 20,
-        "magic": 123456,
-        "comment": "Legend AI",
-        "type_time": "ORDER_TIME_GTC",
-        "type_filling": "ORDER_FILLING_IOC",
+        "comment": "Legend AI"
     }
     
     logger.info(f"Sending order via bridge: {payload}")
     try:
-        resp = requests.post(f"{BRIDGE_URL}/order_send", json=payload, timeout=10)
+        resp = requests.post(f"{BRIDGE_URL}/order/open", json=payload, timeout=10)
         result = resp.json()
         
         # Check the return code (10009 means successful in MT5)
-        if result.get("retcode") == 10009:
-            logger.info(f"✅ Order executed! Ticket: {result.get('order')}")
+        if result.get("retcode") == 10009 or result.get("data", {}).get("retcode") == 10009:
+            logger.info(f"✅ Order executed! Response: {result}")
             mark_mt5_trade_executed(trade['id'])
         else:
             logger.error(f"Order failed: {result}")

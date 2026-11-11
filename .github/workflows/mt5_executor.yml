@@ -20,13 +20,15 @@ jobs:
           SERV: ${{ secrets.MT5_SERVER }}
         run: |
           docker pull liberatti/mt5bridge:latest
-          docker run -d --name mt5bridge -p 5000:5000 -e MT5_LOGIN="$LOGIN" -e MT5_PASSWORD="$PASS" -e MT5_SERVER="$SERV" liberatti/mt5bridge:latest
-          
+          docker run -d --name mt5bridge -p 5000:5000 -e MT5_LOGIN="$LOGIN" -e MT5_PASSWORD="$PASS" -e MT5_SERVER="$SERV" -e SECURITY_ENABLED=false liberatti/mt5bridge:latest
+          echo "Waiting for MT5 Bridge to boot..."
+          sleep 30
+
       - name: Wait for MT5 Bridge to be Ready
         run: |
           echo "Waiting for MT5 Bridge to boot (up to 120 seconds)..."
           for i in {1..12}; do
-            if curl -s http://localhost:5000/ > /dev/null; then
+            if curl -s http://localhost:5000/api/account_info > /dev/null; then
               echo "✅ MT5 Bridge is UP!"
               exit 0
             fi
@@ -46,5 +48,5 @@ jobs:
       - name: Run MT5 Worker (via REST API)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          MT5_BRIDGE_URL: http://localhost:5000
+          MT5_BRIDGE_URL: http://localhost:5000/api
         run: python mt5_worker.py
