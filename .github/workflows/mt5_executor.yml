@@ -18,7 +18,16 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install MT5 Terminal
+        shell: powershell
+        run: |
+          $installerPath = "$env:TEMP\mt5setup.exe"
+          $downloadUrl = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+          Start-Process -FilePath $installerPath -ArgumentList "/auto" -Wait
+          Write-Host "MT5 installation completed."
+
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install MetaTrader5 psycopg2-binary python-dotenv
