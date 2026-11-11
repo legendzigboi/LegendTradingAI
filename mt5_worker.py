@@ -1,4 +1,5 @@
 import os
+import time
 import MetaTrader5 as mt5
 import logging
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
@@ -9,14 +10,15 @@ logger = logging.getLogger(__name__)
 MT5_LOGIN = int(os.environ.get("MT5_LOGIN", 0))
 MT5_PASSWORD = os.environ.get("MT5_PASSWORD", "")
 MT5_SERVER = os.environ.get("MT5_SERVER", "")
-# The default path where the MT5 installer puts the terminal on Windows
-MT5_PATH = "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+MT5_PATH = r"C:\Program Files\MetaTrader 5\terminal64.exe"
 
 def main():
-    logger.info("Connecting to MT5...")
+    logger.info("Waiting 15 seconds for Windows to register MT5 installation...")
+    time.sleep(15) # Give Windows time to settle
     
-    # 🚨 INITIALIZE WITH EXPLICIT PATH 🚨
-    if not mt5.initialize(path=MT5_PATH, login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER):
+    logger.info("Connecting to MT5...")
+    # 🚨 Added timeout=60000 (60 seconds) and explicit path 🚨
+    if not mt5.initialize(path=MT5_PATH, login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER, timeout=60000):
         logger.error(f"MT5 initialization failed: {mt5.last_error()}")
         return
 
