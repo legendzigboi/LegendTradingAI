@@ -1,4 +1,4 @@
-name: MT5 Executor
+name: MT5 Executor via Docker Bridge
 
 on:
   schedule:
@@ -7,44 +7,34 @@ on:
 
 jobs:
   execute-trades:
-    runs-on: windows-latest
-
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Install MT5 Terminal
-        shell: powershell
+      - name: Start MT5 Bridge Container
         run: |
-          Write-Host "Downloading MT5..."
-          $installerPath = "$env:TEMP\mt5setup.exe"
-          $downloadUrl = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
-          
-          Write-Host "Installing MT5 silently..."
-          Start-Process -FilePath $installerPath -ArgumentList "/auto" -Wait
-          
-          Write-Host "Verifying installation..."
-          if (Test-Path "C:\Program Files\MetaTrader 5\terminal64.exe") {
-              Write-Host "✅ MT5 installed successfully."
-          } else {
-              Write-Error "❌ MT5 installation failed."
-          }
+          docker pull liberatti/mt5bridge:latest
+          docker run -d --name mt5bridge \
+            -p 5000:5000 \
+            -e MT5_LOGIN=${{ secrets.MT5_LOGIN }} \
+            -e MT5_PASSWORD=${{ secrets.MT5_PASSWORD }} \
+            -e MT5_SERVER=${{ secrets.MT5_SERVER }} \
+            liberatti/mt5bridge:latest
+          echo "Waiting for MT5 Bridge to be ready..."
+          sleep 30
+
+      - name: Verify Bridge is Running
+        run: |
+          curl -s http://localhost:5000/ | head -n 1
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install MetaTrader5 psycopg2-binary python-dotenv
+          pip install requests psycopg2-binary python-dotenv
 
-      - name: Run MT5 Worker
+      - name: Run MT5 Worker (via REST API)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
-          MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
-          MT5_SERVER: ${{ secrets.MT5_SERVER }}
+          MT5_BRIDGE_URL: http://localhost:5000
         run: python mt5_worker.py
