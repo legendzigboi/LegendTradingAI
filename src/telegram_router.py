@@ -13,6 +13,7 @@ from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
 from src.risk_engine import check_circuit_breaker, set_pause
 from src.state import SYSTEM_PAUSED
+import src.state as state
 from src.chart_generator import generate_chart
 from src.banner_generator import generate_banner
 from src.image_composer import combine_banner_and_chart
@@ -32,6 +33,7 @@ from src.macro_engine import get_crypto_crowd_sentiment, get_dxy_trend, get_us10
 from src.kelly_engine import calculate_kelly_position_size
 from src.price_sync import adjust_plan_to_live_price
 from src.auto_trader import CRYPTO, FOREX_STOCKS, TIMEFRAMES
+from src.mt5_autotrader import mt5_auto_trade_loop
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -452,6 +454,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'menu_resume':
         set_pause(False)
         await query.edit_message_text("🟢 SYSTEM RESUMED.", reply_markup=get_main_menu())
+        
+    elif query.data == 'menu_mt5_start':
+        if state.MT5_AUTO_TRADE_ACTIVE:
+        else:
+            state.MT5_AUTO_TRADE_ACTIVE = True
+            await query.edit_message_text("🚀 STARTING MT5 AUTO-TRADER...", reply_markup=get_main_menu())
+            asyncio.create_task(mt5_auto_trade_loop(context.bot, query.message.chat_id))
+            
+    elif query.data == 'menu_mt5_stop':
+        if not state.MT5_AUTO_TRADE_ACTIVE:
+        else:
+            state.MT5_AUTO_TRADE_ACTIVE = False
+            await query.edit_message_text("🛑 STOPPING MT5 AUTO-TRADER...", reply_markup=get_main_menu())
     elif query.data == 'menu_research':
         await query.edit_message_text("🔬 Running Research Lab...", reply_markup=None)
         result = await asyncio.to_thread(run_research_lab)

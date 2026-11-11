@@ -15,7 +15,9 @@ def get_main_menu():
         [InlineKeyboardButton("⚙️ MODEL TESTING", callback_data='menu_testing'),
          InlineKeyboardButton("📊 PERFORMANCE", callback_data='menu_performance')],
         [InlineKeyboardButton("🤖 SYSTEM STATUS", callback_data='menu_status'),
-         status_button]
+         status_button],
+        [InlineKeyboardButton("🚀 START MT5 AUTO-TRADE", callback_data='menu_mt5_start'),
+         InlineKeyboardButton("🛑 STOP MT5 AUTO-TRADE", callback_data='menu_mt5_stop')]
     ]
     return InlineKeyboardMarkup(keyboard)
 

@@ -2,7 +2,7 @@ name: MT5 Executor
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Runs every 15 minutes
+    - cron: '*/15 * * * *' # Runs every 15 minutes automatically
   workflow_dispatch: # Allows manual trigger
 
 jobs:
@@ -21,11 +21,14 @@ jobs:
       - name: Install MT5 Terminal
         shell: powershell
         run: |
+          Write-Host "Downloading MT5..."
           $installerPath = "$env:TEMP\mt5setup.exe"
           $downloadUrl = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
           Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+          Write-Host "Installing MT5 silently..."
           Start-Process -FilePath $installerPath -ArgumentList "/auto" -Wait
           Write-Host "MT5 installation completed."
+          Get-ChildItem -Path "C:\Program Files\MetaTrader 5" -ErrorAction SilentlyContinue
 
       - name: Install Python Dependencies
         run: |

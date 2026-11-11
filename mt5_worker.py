@@ -9,16 +9,19 @@ logger = logging.getLogger(__name__)
 MT5_LOGIN = int(os.environ.get("MT5_LOGIN", 0))
 MT5_PASSWORD = os.environ.get("MT5_PASSWORD", "")
 MT5_SERVER = os.environ.get("MT5_SERVER", "")
+# The default path where the MT5 installer puts the terminal on Windows
+MT5_PATH = "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
 
 def main():
     logger.info("Connecting to MT5...")
-    if not mt5.initialize(login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER):
+    
+    # 🚨 INITIALIZE WITH EXPLICIT PATH 🚨
+    if not mt5.initialize(path=MT5_PATH, login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER):
         logger.error(f"MT5 initialization failed: {mt5.last_error()}")
         return
 
     logger.info("Connected to MT5!")
     
-    # Check if we already have open positions (Only 1 trade at a time rule)
     positions = mt5.positions_get()
     if positions and len(positions) > 0:
         logger.info(f"Skipping: {len(positions)} trade(s) currently open on MT5.")
@@ -31,7 +34,6 @@ def main():
         mt5.shutdown()
         return
 
-    # Process the oldest pending trade
     trade = pending_trades[0]
     symbol = trade['symbol']
     direction = trade['direction']
@@ -39,7 +41,6 @@ def main():
     sl = trade['stop_loss']
     tp = trade['take_profit']
 
-    # Get symbol info to fill the order correctly
     symbol_info = mt5.symbol_info(symbol)
     if symbol_info is None:
         logger.error(f"Symbol {symbol} not found on FBS.")
