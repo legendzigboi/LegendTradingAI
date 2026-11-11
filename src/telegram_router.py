@@ -13,6 +13,7 @@ from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
 from src.risk_engine import check_circuit_breaker, set_pause
 from src.state import SYSTEM_PAUSED
+from src.price_sync import adjust_plan_to_live_price
 from src.kelly_engine import calculate_kelly_position_size
 from src.chart_generator import generate_chart
 from src.banner_generator import generate_banner
@@ -325,7 +326,7 @@ async def run_analysis(message, symbol, timeframe):
             f"🧠 Deep Research: ✅ APPROVED\n"
             f"*(Reason: {research_reason})*\n\n"
             f"{tech_overview}\n\n"
-            f"🎯 TRADE PLAN\n"
+            f"🎯 TRADE PLAN {sync_text}\n"
             f"Entry: <code>{format_price(plan['entry'])}</code>\n"
             f"SL: <code>{format_price(plan['stop_loss'])}</code>\n"
             f"Target: <code>{format_price(plan['tp1'])}</code>\n\n"
