@@ -457,6 +457,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif query.data == 'menu_mt5_start':
         if state.MT5_AUTO_TRADE_ACTIVE:
+            await query.answer("MT5 Auto-Trade is already running!", show_alert=True)
         else:
             state.MT5_AUTO_TRADE_ACTIVE = True
             await query.edit_message_text("🚀 STARTING MT5 AUTO-TRADER...", reply_markup=get_main_menu())
@@ -464,9 +465,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     elif query.data == 'menu_mt5_stop':
         if not state.MT5_AUTO_TRADE_ACTIVE:
+            await query.answer("MT5 Auto-Trade is already stopped!", show_alert=True)
         else:
             state.MT5_AUTO_TRADE_ACTIVE = False
             await query.edit_message_text("🛑 STOPPING MT5 AUTO-TRADER...", reply_markup=get_main_menu())
+
     elif query.data == 'menu_research':
         await query.edit_message_text("🔬 Running Research Lab...", reply_markup=None)
         result = await asyncio.to_thread(run_research_lab)
