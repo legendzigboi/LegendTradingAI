@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS signals (
     closed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS mt5_queue (
+    id SERIAL PRIMARY KEY,
+    ts TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    lot_size DOUBLE PRECISION NOT NULL,
+    stop_loss DOUBLE PRECISION,
+    take_profit DOUBLE PRECISION,
+    status TEXT DEFAULT 'PENDING'
+);
+
 CREATE TABLE IF NOT EXISTS research_insights (
     id SERIAL PRIMARY KEY,
     ts TEXT NOT NULL,
@@ -164,5 +175,38 @@ def get_historical_win_rate(symbol, timeframe):
             if row and row[1] > 0:
                 return row[0] / row[1] 
             return None 
+    finally:
+        conn.close()
+
+
+def queue_mt5_trade(symbol, direction, lot_size, sl, tp):
+    ts = datetime.now(tz=timezone.utc).isoformat()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO mt5_queue (ts, symbol, direction, lot_size, stop_loss, take_profit)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+            """, (ts, symbol, direction, lot_size, sl, tp))
+            conn.commit()
+            return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+def get_pending_mt5_trades():
+    conn = _connect()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM mt5_queue WHERE status = 'PENDING' ORDER BY ts ASC")
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+def mark_mt5_trade_executed(trade_id):
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE mt5_queue SET status = 'EXECUTED' WHERE id = %s", (trade_id,))
+        conn.commit()
     finally:
         conn.close()

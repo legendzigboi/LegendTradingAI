@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from telegram import Update, BotCommand
 from telegram.ext import ContextTypes
 from src.config import env
-from src.signal_db import init_db, log_signal, get_pending_trades, get_performance_stats, get_all_insights, get_historical_win_rate
+from src.signal_db import init_db, log_signal, queue_mt5_trade, get_pending_trades, get_performance_stats, get_all_insights, get_historical_win_rate
 from src.live_features import get_latest_features, fetch_klines
 from src.model_registry import get_model
 from src.trade_planner import build_trade_plan
@@ -112,6 +112,7 @@ async def run_full_scan_task(chat_id, bot):
         model_name = res["engine"]
         
         sig_id = log_signal(symbol=symbol, timeframe=display_tf, direction=direction, model_version=model_name, confidence=float(confidence), entry_price=plan["entry"], stop_loss=plan["stop_loss"], tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0))
+        queue_mt5_trade(symbol=symbol, direction=direction, lot_size=suggested_lot, sl=plan["stop_loss"], tp=plan["tp1"])
         
         msg = (
             f"🤖 **LEGEND SCANNER ALERT**\n"
@@ -321,6 +322,7 @@ async def run_analysis(message, symbol, timeframe):
 
         tech_overview = get_technical_overview(feats, direction, display_tf)
         sig_id = log_signal(symbol=symbol, timeframe=display_tf, direction=direction, model_version=model_name, confidence=float(confidence), entry_price=plan["entry"], stop_loss=plan["stop_loss"], tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0))
+        queue_mt5_trade(symbol=symbol, direction=direction, lot_size=suggested_lot, sl=plan["stop_loss"], tp=plan["tp1"])
         
         signal_time = datetime.now(tz=WAT).strftime('%I:%M:%S %p WAT')
         start_str = plan['start_time'].astimezone(WAT).strftime('%I:%M:%S %p WAT')

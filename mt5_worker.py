@@ -1,0 +1,85 @@
+import os
+import MetaTrader5 as mt5
+import logging
+from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+MT5_LOGIN = int(os.environ.get("MT5_LOGIN", 0))
+MT5_PASSWORD = os.environ.get("MT5_PASSWORD", "")
+MT5_SERVER = os.environ.get("MT5_SERVER", "")
+
+def main():
+    logger.info("Connecting to MT5...")
+    if not mt5.initialize(login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER):
+        logger.error(f"MT5 initialization failed: {mt5.last_error()}")
+        return
+
+    logger.info("Connected to MT5!")
+    
+    # Check if we already have open positions (Only 1 trade at a time rule)
+    positions = mt5.positions_get()
+    if positions and len(positions) > 0:
+        logger.info(f"Skipping: {len(positions)} trade(s) currently open on MT5.")
+        mt5.shutdown()
+        return
+
+    pending_trades = get_pending_mt5_trades()
+    if not pending_trades:
+        logger.info("No pending trades in the database.")
+        mt5.shutdown()
+        return
+
+    # Process the oldest pending trade
+    trade = pending_trades[0]
+    symbol = trade['symbol']
+    direction = trade['direction']
+    lot = trade['lot_size']
+    sl = trade['stop_loss']
+    tp = trade['take_profit']
+
+    # Get symbol info to fill the order correctly
+    symbol_info = mt5.symbol_info(symbol)
+    if symbol_info is None:
+        logger.error(f"Symbol {symbol} not found on FBS.")
+        mt5.shutdown()
+        return
+
+    if not symbol_info.visible:
+        if not mt5.symbol_select(symbol, True):
+            logger.error(f"Failed to select {symbol}.")
+            mt5.shutdown()
+            return
+
+    order_type = mt5.ORDER_TYPE_BUY if direction == "LONG" else mt5.ORDER_TYPE_SELL
+    price = mt5.symbol_info_tick(symbol).ask if direction == "LONG" else mt5.symbol_info_tick(symbol).bid
+
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": float(lot),
+        "type": order_type,
+        "price": price,
+        "sl": float(sl),
+        "tp": float(tp),
+        "deviation": 20,
+        "magic": 123456,
+        "comment": "Legend AI",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+
+    logger.info(f"Sending order: {request}")
+    result = mt5.order_send(request)
+
+    if result.retcode != mt5.TRADE_RETCODE_DONE:
+        logger.error(f"Order failed: {result.comment}")
+    else:
+        logger.info(f"✅ Order executed! Ticket: {result.order}")
+        mark_mt5_trade_executed(trade['id'])
+
+    mt5.shutdown()
+
+if __name__ == "__main__":
+    main()
