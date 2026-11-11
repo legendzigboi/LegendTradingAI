@@ -1,7 +1,5 @@
 import os
 import time
-import subprocess
-import configparser
 import MetaTrader5 as mt5
 import logging
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
@@ -12,71 +10,27 @@ logger = logging.getLogger(__name__)
 MT5_LOGIN = int(os.environ.get("MT5_LOGIN", 0))
 MT5_PASSWORD = os.environ.get("MT5_PASSWORD", "")
 MT5_SERVER = os.environ.get("MT5_SERVER", "")
-MT5_PATH = r"C:\Program Files\MetaTrader 5\terminal64.exe"
-# Path to the config file in portable mode
-CONFIG_PATH = r"C:\Program Files\MetaTrader 5\Config\common.ini"
-
-def enable_mt5_settings():
-    logger.info("Force-enabling algorithmic trading in common.ini...")
-    try:
-        config = configparser.ConfigParser()
-        # Preserve case sensitivity for keys
-        config.optionxform = str
-        
-        if os.path.exists(CONFIG_PATH):
-            config.read(CONFIG_PATH)
-        
-        if not config.has_section('Experts'):
-            config.add_section('Experts')
-        
-        # 🚨 CRITICAL SETTINGS 🚨
-        config.set('Experts', 'AllowLiveTrading', '1')
-        config.set('Experts', 'AllowDllImport', '1')
-        config.set('Experts', 'Enabled', '1')
-        config.set('Experts', 'Account', str(MT5_LOGIN))
-        config.set('Experts', 'Server', MT5_SERVER)
-        
-        with open(CONFIG_PATH, 'w') as configfile:
-            config.write(configfile)
-            
-        logger.info("✅ Settings written to common.ini")
-    except Exception as e:
-        logger.error(f"Failed to edit common.ini: {e}")
+# Use forward slashes for the path
+MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
 
 def main():
-    # 1. Force the settings before launch
-    enable_mt5_settings()
-    
-    logger.info("Launching MT5 terminal in background...")
-    try:
-        subprocess.Popen([
-            MT5_PATH,
-            f"/login:{MT5_LOGIN}",
-            f"/password:{MT5_PASSWORD}",
-            f"/server:{MT5_SERVER}",
-            "/portable"
-        ])
-    except Exception as e:
-        logger.error(f"Failed to launch MT5: {e}")
-        return
-
-    logger.info("Waiting 25 seconds for MT5 to initialize...")
-    time.sleep(25)
-
-    logger.info("Connecting Python to MT5...")
-    # Explicitly pass the path again
+    logger.info("Initializing MT5...")
+    # 1. Initialize (this will start the terminal if it's not running)
     if not mt5.initialize(path=MT5_PATH):
-        logger.error(f"MT5 initialization failed: {mt5.last_error()}")
-        return
-
-    logger.info("Connected to MT5!")
-    
-    account_info = mt5.account_info()
-    if account_info is None:
-        logger.error("Connected but not logged in. Check credentials.")
+        logger.error(f"initialize() failed, error code = {mt5.last_error()}")
         mt5.shutdown()
         return
-    logger.info(f"Logged in as: {account_info.login} on {account_info.server}")
+
+    logger.info("Connected to MT5 terminal. Logging in...")
+    
+    # 2. Explicitly login
+    authorized = mt5.login(login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER)
+    if not authorized:
+        logger.error(f"Login failed, error code = {mt5.last_error()}")
+        mt5.shutdown()
+        return
+
+    logger.info(f"Logged in successfully as: {mt5.account_info().login}")
 
     # --- Trade Execution Logic ---
     positions = mt5.positions_get()
