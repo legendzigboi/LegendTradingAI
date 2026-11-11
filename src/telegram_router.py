@@ -76,6 +76,12 @@ async def run_full_scan_task(chat_id, bot):
     all_symbols = CRYPTO + FOREX_STOCKS
     valid_results = []
     
+    await bot.send_message(chat_id=chat_id, text="🔍 **GOD MODE SCAN INITIATED**
+
+Scanning ALL Crypto, Forex, Stocks, and Indices across ALL Timeframes (1m to 1d + Fusion).
+
+⏳ This will take a while (approx 5-10 minutes) as I am analyzing 136 market combinations. Please be patient...")
+    
     for symbol in all_symbols:
         for tf in TIMEFRAMES:
             try:
@@ -95,40 +101,108 @@ async def run_full_scan_task(chat_id, bot):
                 logger.error(f"Scan error {symbol} {tf}: {e}")
 
     if not valid_results:
-        await bot.send_message(chat_id=chat_id, text="⚪ **SCAN COMPLETE**\n\nNo setups passed the 60% confidence threshold across all markets right now.", parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text="⚪ **SCAN COMPLETE**
+
+No setups passed the 60% confidence threshold across all markets right now. The Sniper is waiting for a better shot.", parse_mode="Markdown")
         return
 
     valid_results.sort(key=lambda x: x["confidence"], reverse=True)
     top_signals = valid_results[:3]
     
-    await bot.send_message(chat_id=chat_id, text=f"🎯 **SCAN COMPLETE!**\nFound {len(valid_results)} setups. Sending the Top {len(top_signals)} now...", parse_mode="Markdown")
-
+    await bot.send_message(chat_id=chat_id, text=f"🎯 **SCAN COMPLETE-n queue_mt5_trade src/telegram_router.py*
+Found {len(valid_results)} high-confidence setups. Sending the Top {len(top_signals)} now...", parse_mode="Markdown")
     for res in top_signals:
-        symbol = res["symbol"]
-        direction = res["direction"]
-        confidence = res["confidence"]
-        plan = res["plan"]
-        display_tf = res["timeframe"]
-        model_name = res["engine"]
-        
-        sig_id = log_signal(symbol=symbol, timeframe=display_tf, direction=direction, model_version=model_name, confidence=float(confidence), entry_price=plan["entry"], stop_loss=plan["stop_loss"], tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0))
-        queue_mt5_trade(symbol=symbol, direction=direction, lot_size=suggested_lot, sl=plan["stop_loss"], tp=plan["tp1"])
-        
-        msg = (
-            f"🤖 **LEGEND SCANNER ALERT**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"{'🟢 BUY ▲' if direction == 'LONG' else '🔴 SELL ▼'}\n"
-            f"{symbol} · {display_tf}\n"
-            f"Engine: {model_name}\n\n"
-            f"📊 CONFIDENCE: {confidence*100:.1f}%\n"
-            f"⏱ EXPIRY: {plan['duration_min']} minutes\n\n"
-            f"🎯 TRADE PLAN\n"
-            f"Entry: <code>{format_price(plan['entry'])}</code>\n"
-            f"SL: <code>{format_price(plan['stop_loss'])}</code>\n"
-            f"Target: <code>{format_price(plan['tp1'])}</code>\n\n"
-            f"ID: {sig_id}"
-        )
-        await bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML")
+        try:
+            symbol = res["symbol"]
+            direction = res["direction"]
+            confidence = res["confidence"]
+            plan = res["plan"]
+            display_tf = res["timeframe"]
+            model_name = res["engine"]
+            feats = res["features"]
+            
+            # Fetch sentiment for the full signal
+            sentiment, sentiment_reason = await asyncio.to_thread(get_market_sentiment, symbol)
+            
+            # Calculate sizing
+            sizing_text, suggested_lot = await calculate_kelly_position_size(symbol, display_tf, plan['entry'], plan['stop_loss'], plan['tp1'])
+            
+            # Log and Queue for MT5
+            sig_id = log_signal(symbol=symbol, timeframe=display_tf, direction=direction, model_version=model_name, confidence=float(confidence), entry_price=plan["entry"], stop_loss=plan["stop_loss"], tp1=plan["tp1"], tp2=plan.get("tp2", 0), tp3=plan.get("tp3", 0))
+            queue_mt5_trade(symbol=symbol, direction=direction, lot_size=suggested_lot, sl=plan["stop_loss"], tp=plan["tp1"])
+            
+            # Get Technical Overview
+            tech_overview = get_technical_overview(feats, direction, display_tf)
+            sent_emoji = "🟢" if sentiment == "BULLISH" else ("🔴" if sentiment == "BEARISH" else "⚪")
+            quality = "🔥 STRONG" if confidence >= 0.70 else "⚡ MODERATE"
+            
+            # Build the full message
+            msg = (
+                f"🤖 LEGEND SCANNER ALERT
+"
+                f"━━━━━━━━━━━━━━━━━━━━
+"
+                f"PAPER MODE
+
+"
+                f"{'🟢 BUY ▲' if direction == 'LONG' else '🔴 SELL ▼'}
+"
+                f"{symbol} · Chart: {display_tf}
+"
+                f"Engine: {model_name}
+
+"
+                f"⏱ EXPIRY: {plan['duration_min']} minutes
+"
+                f"📊 CONFIDENCE: {confidence*100:.1f}% ({quality})
+"
+                f"📰 Sentiment: {sent_emoji} {sentiment}
+
+"
+                f"{tech_overview}
+
+"
+                f"🎯 TRADE PLAN
+"
+                f"Entry: <code>{format_price(plan['entry'])}</code>
+"
+                f"SL: <code>{format_price(plan['stop_loss'])}</code>
+"
+                f"Target: <code>{format_price(plan['tp1'])}</code>
+
+"
+                f"💰 **POSITION SIZING**
+"
+                f"{sizing_text}
+"
+                f"Suggested Lot: <code>{suggested_lot}</code>
+
+"
+                f"ID: {sig_id}"
+            )
+            
+            # Generate Image
+            static_img = "buy.png" if direction == "LONG" else "sell.png"
+            final_img = static_img
+            
+            try:
+                chart_file = await asyncio.wait_for(asyncio.to_thread(generate_chart, symbol, display_tf, plan, direction), timeout=10.0)
+                if chart_file and os.path.exists(chart_file): 
+                    final_img = chart_file
+            except: pass
+            
+            # Send Photo with caption
+            if os.path.exists(final_img):
+                with open(final_img, "rb") as f:
+                    await bot.send_photo(chat_id=chat_id, photo=f, caption=msg, parse_mode="HTML")
+            else:
+                await bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML")
+                
+            await asyncio.sleep(3) # Prevent Telegram rate limits
+            
+        except Exception as e:
+            logger.error(f"Error sending scan signal: {e}")
+            await bot.send_message(chat_id=chat_id, text=f"❌ Error sending signal for {res.get('symbol', 'Unknown')}: {str(e)[:50]}")
 
 @restricted
 async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
