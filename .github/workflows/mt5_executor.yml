@@ -25,10 +25,16 @@ jobs:
           $installerPath = "$env:TEMP\mt5setup.exe"
           $downloadUrl = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
           Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+          
           Write-Host "Installing MT5 silently..."
           Start-Process -FilePath $installerPath -ArgumentList "/auto" -Wait
-          Write-Host "MT5 installation completed."
-          Get-ChildItem -Path "C:\Program Files\MetaTrader 5" -ErrorAction SilentlyContinue
+          
+          Write-Host "Checking installation..."
+          if (Test-Path "C:\Program Files\MetaTrader 5\terminal64.exe") {
+              Write-Host "✅ MT5 installed successfully at C:\Program Files\MetaTrader 5\terminal64.exe"
+          } else {
+              Write-Error "❌ MT5 installation failed. File not found."
+          }
 
       - name: Install Python Dependencies
         run: |
