@@ -13,46 +13,35 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Start MT5 Bridge Container
+      - name: Start MT5 VNC Container
         env:
           LOGIN: ${{ secrets.MT5_LOGIN }}
           PASS: ${{ secrets.MT5_PASSWORD }}
           SERV: ${{ secrets.MT5_SERVER }}
         run: |
-          docker pull liberatti/mt5bridge:latest
-          # 🚨 THE FIX: Use MT5_ENABLE_TRADING=1 instead of MT5_TRADE_ALLOWED=true 🚨
-          docker run -d --name mt5bridge -p 5000:5000 \
+          docker pull gmag11/metatrader5_vnc:2.3
+          # 🚨 Start the VNC container. Port 3000 is for the VNC web interface, 8001 is for RPyC.
+          docker run -d --name mt5vnc \
+            -p 3000:3000 \
+            -p 8001:8001 \
             -e MT5_LOGIN="$LOGIN" \
             -e MT5_PASSWORD="$PASS" \
             -e MT5_SERVER="$SERV" \
-            -e MT5_STARTUP_SYMBOL=USDJPY \
-            -e MT5_STARTUP_PERIOD=H1 \
-            -e MT5_ENABLE_TRADING=1 \
-            -e SECURITY_ENABLED=false \
-            liberatti/mt5bridge:latest
+            gmag11/metatrader5_vnc:2.3
 
-      - name: Wait for MT5 Bridge to be Ready
+      - name: Wait for MT5 VNC to be Ready
         run: |
-          echo "Waiting for MT5 Bridge API to be ready..."
-          for i in {1..12}; do
-            if curl -s http://localhost:5000/api/account_info > /dev/null; then
-              echo "✅ MT5 Bridge API is UP!"
-              exit 0
-            fi
-            echo "Attempt $i/12 failed. Waiting 10 seconds..."
-            sleep 10
-          done
-          
-          docker logs mt5bridge
-          exit 1
+          echo "Waiting for MT5 VNC to boot..."
+          sleep 60
+          echo "Checking VNC endpoint..."
+          curl -s http://localhost:3000/ | head -n 1
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests psycopg2-binary python-dotenv
+          pip install rpyc psycopg2-binary python-dotenv
 
-      - name: Run MT5 Worker (via REST API)
+      - name: Run MT5 Worker (via RPyC)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          MT5_BRIDGE_URL: http://localhost:5000/api
         run: python mt5_worker.py
