@@ -20,38 +20,54 @@ def map_symbol_to_mt5(symbol):
 def main():
     logger.info(f"Connecting to MT5 Bridge at {BRIDGE_URL}...")
     
+    # 1. Verify account and TRADE ALLOWED status
     try:
         resp = requests.get(f"{BRIDGE_URL}/account_info", timeout=10)
         raw_account = resp.json()
         account_data = raw_account.get("data", raw_account)
+        trade_allowed = account_data.get("trade_allowed")
         logger.info(f"✅ Connected to account: {account_data.get('login')}")
-        logger.info(f"Trade Allowed: {account_data.get('trade_allowed')}")
+        logger.info(f"Trade Allowed: {trade_allowed}")
+        
+        if not trade_allowed:
+            logger.error("❌ CRITICAL: Trade Allowed is False. The MT5 terminal has not enabled algorithmic trading.")
+            logger.error("Please check the Docker logs for the 'RestGateway EA' initialization.")
+            return
     except Exception as e:
         logger.error(f"Failed to connect to bridge: {e}")
         return
 
+    # 2. Get pending trades
     pending_trades = get_pending_mt5_trades()
     if not pending_trades:
         logger.info("No pending trades in the database.")
         return
 
     trade = pending_trades[0]
-    mt5_symbol = map_symbol_to_mt5(trade['symbol'])
+    original_symbol = trade['symbol']
+    mt5_symbol = map_symbol_to_mt5(original_symbol)
     direction = trade['direction']
     lot = trade['lot_size']
 
-    logger.info(f"Mapping symbol: {trade['symbol']} -> {mt5_symbol}")
+    logger.info(f"Mapping symbol: {original_symbol} -> {mt5_symbol}")
 
-    # Select symbol
+    # 3. 🚨 EXPLICITLY SELECT THE SYMBOL 🚨
+    logger.info(f"Selecting symbol {mt5_symbol} in Market Watch...")
     try:
-        requests.get(f"{BRIDGE_URL}/symbol_select/{mt5_symbol}", timeout=5)
-        time.sleep(1)
-    except: pass
+        # The bridge accepts a JSON payload to select a symbol
+        sel_resp = requests.post(f"{BRIDGE_URL}/symbol_select", json={"symbol": mt5_symbol}, timeout=10)
+        logger.info(f"Symbol select response: {sel_resp.text}")
+        time.sleep(2) # Wait for MT5 to load the symbol
+    except Exception as e:
+        logger.warning(f"Symbol selection warning: {e}")
 
-    # Get current price
+    # 4. Get current price
     try:
         price_resp = requests.get(f"{BRIDGE_URL}/symbol_info_tick/{mt5_symbol}", timeout=10)
-        price_data = price_resp.json().get("data", {})
+        raw_tick = price_resp.json()
+        logger.info(f"Raw Tick Data: {raw_tick}")
+        
+        price_data = raw_tick.get("data", raw_tick)
         
         if direction == "LONG":
             price = price_data.get("ask")
@@ -61,15 +77,14 @@ def main():
             order_type = "SELL"
 
         if price is None or price == 0:
-            logger.error(f"❌ Could not get price for {mt5_symbol}.")
+            logger.error(f"❌ Could not get price for {mt5_symbol}. Data: {price_data}")
             return
             
     except Exception as e:
-        logger.error(f"Failed to get price: {e}")
+        logger.error(f"Failed to get price for {mt5_symbol}: {e}")
         return
 
-    # 🚨 DYNAMIC SL/TP CALCULATION 🚨
-    # If the price moved, old SL/TP are invalid. We calculate fresh ones.
+    # 5. Dynamically calculate SL/TP (to avoid Invalid Stops error)
     sl_pct = 0.005 # 0.5% away
     tp_pct = 0.01  # 1.0% away
     
@@ -80,7 +95,7 @@ def main():
         sl = price * (1 + sl_pct)
         tp = price * (1 - tp_pct)
 
-    # Send the trade
+    # 6. Send the trade
     payload = {
         "symbol": mt5_symbol,
         "order_type": order_type,
