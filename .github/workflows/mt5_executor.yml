@@ -21,15 +21,13 @@ jobs:
         run: |
           docker pull liberatti/mt5bridge:latest
           docker run -d --name mt5bridge -p 5000:5000 -e MT5_LOGIN="$LOGIN" -e MT5_PASSWORD="$PASS" -e MT5_SERVER="$SERV" -e SECURITY_ENABLED=false liberatti/mt5bridge:latest
-          echo "Waiting for MT5 Bridge to boot..."
-          sleep 30
 
       - name: Wait for MT5 Bridge to be Ready
         run: |
-          echo "Waiting for MT5 Bridge to boot (up to 120 seconds)..."
+          echo "Waiting for MT5 Bridge API to be ready..."
           for i in {1..12}; do
             if curl -s http://localhost:5000/api/account_info > /dev/null; then
-              echo "✅ MT5 Bridge is UP!"
+              echo "✅ MT5 Bridge API is UP!"
               exit 0
             fi
             echo "Attempt $i/12 failed. Waiting 10 seconds..."

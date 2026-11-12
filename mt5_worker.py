@@ -6,7 +6,6 @@ from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# The bridge uses the /api prefix as per documentation
 BRIDGE_URL = os.environ.get("MT5_BRIDGE_URL", "http://localhost:5000/api")
 
 def map_symbol_to_mt5(symbol):
@@ -64,10 +63,10 @@ def main():
         
         if direction == "LONG":
             price = price_data.get("ask")
-            order_type = "ORDER_TYPE_BUY"
+            order_type = "BUY"
         else:
             price = price_data.get("bid")
-            order_type = "ORDER_TYPE_SELL"
+            order_type = "SELL"
 
         if price is None:
             logger.error(f"❌ Could not get price for {mt5_symbol}. Tick data: {price_data}")
@@ -77,37 +76,28 @@ def main():
         logger.error(f"Failed to get price for {mt5_symbol}: {e}")
         return
 
-    # 4. Send the trade (Official endpoint: /api/order_send)
-    # This uses the raw MqlTradeRequest structure as documented
+    # 4. Send the trade using the High-Level Helper (Official endpoint: /api/order/open)
     payload = {
-        "action": "TRADE_ACTION_DEAL",
         "symbol": mt5_symbol,
+        "order_type": order_type,
         "volume": float(lot),
-        "type": order_type,
         "price": float(price),
         "sl": float(sl),
         "tp": float(tp),
-        "deviation": 20,
-        "magic": 123456,
-        "comment": "Legend AI",
-        "type_time": "ORDER_TIME_GTC",
-        "type_filling": "ORDER_FILLING_IOC",
+        "comment": "Legend AI"
     }
     
     logger.info(f"Sending order via bridge: {payload}")
     try:
-        resp = requests.post(f"{BRIDGE_URL}/order_send", json=payload, timeout=10)
+        resp = requests.post(f"{BRIDGE_URL}/order/open", json=payload, timeout=10)
         result = resp.json()
         
-        # The response structure is {"code": 200, "data": {...}}
-        # The actual MT5 retcode is inside the data
-        mt5_retcode = result.get("data", {}).get("retcode")
-        
-        if mt5_retcode == 10009:  # 10009 = TRADE_RETCODE_DONE
+        # High-level helper returns success code 200 if order is placed
+        if result.get("code") == 200 or result.get("retcode") == 10009:
             logger.info(f"✅ Order executed! Response: {result}")
             mark_mt5_trade_executed(trade['id'])
         else:
-            logger.error(f"Order failed. MT5 Retcode: {mt5_retcode}. Response: {result}")
+            logger.error(f"Order failed: {result}")
     except Exception as e:
         logger.error(f"Error sending order: {e}")
 
