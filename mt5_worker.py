@@ -1,7 +1,7 @@
 import os
 import time
+import rpyc
 import logging
-from mt5linux import MetaTrader5
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
 
 logging.basicConfig(level=logging.INFO)
@@ -16,42 +16,44 @@ def map_symbol_to_mt5(symbol):
     return symbol
 
 def main():
-    logger.info("Connecting to MT5 via RPyC (mt5linux)...")
+    logger.info("Connecting to MT5 via raw RPyC...")
     
-    # 🚨 THE FIX: Wait up to 5 minutes for the RPyC server to be ready 🚨
-    mt5 = None
-    for attempt in range(30): # 30 * 10s = 300 seconds (5 minutes)
+    conn = None
+    for attempt in range(30): # Wait up to 5 minutes
         try:
-            logger.info(f"Attempt {attempt+1}/30: Connecting to RPyC server on port 8001...")
-            mt5 = MetaTrader5(host="localhost", port=8001)
-            if mt5.initialize():
-                logger.info("✅ Successfully connected to MT5 terminal via RPyC.")
-                break
-            else:
-                logger.warning(f"mt5.initialize() failed. The MT5 terminal might not be ready yet.")
-                mt5 = None
+            # 🚨 THE FIX: Connect directly to the existing container on 8001 🚨
+            conn = rpyc.classic.connect("localhost", 8001)
+            logger.info("✅ RPyC connection established.")
+            break
         except Exception as e:
-            logger.warning(f"Connection failed: {e}. Retrying in 10 seconds...")
-        
-        time.sleep(10)
-    
-    if mt5 is None:
-        logger.error("❌ CRITICAL: Could not connect to MT5 RPyC server after 5 minutes. Check Docker logs.")
+            logger.warning(f"Attempt {attempt+1}/30: Connection failed ({e}). Retrying in 10s...")
+            time.sleep(10)
+            
+    if conn is None:
+        logger.error("❌ CRITICAL: Could not connect to RPyC server on port 8001.")
         return
 
-    # 1. Check account and TRADE ALLOWED status
+    # Get the MetaTrader5 module from the remote connection
+    mt5 = conn.modules.MetaTrader5
+
+    # 1. Initialize and check account
     try:
+        if not mt5.initialize():
+            logger.error(f"❌ mt5.initialize() failed on remote server: {mt5.last_error()}")
+            return
+
         account_info = mt5.account_info()
         if account_info is None:
             logger.error("❌ Could not retrieve account info. MT5 might not be logged in.")
             return
         
         logger.info(f"✅ Connected to account: {account_info.login}")
+        
         terminal_info = mt5.terminal_info()
         logger.info(f"Trade Allowed: {terminal_info.trade_allowed}")
         
         if not terminal_info.trade_allowed:
-            logger.error("❌ CRITICAL: Trade Allowed is False. You must enable Algo Trading in the MT5 terminal.")
+            logger.error("❌ CRITICAL: Trade Allowed is False. You must enable Algo Trading in the VNC interface.")
             return
     except Exception as e:
         logger.error(f"Failed to get account info: {e}")
@@ -61,6 +63,7 @@ def main():
     pending_trades = get_pending_mt5_trades()
     if not pending_trades:
         logger.info("No pending trades in the database.")
+        conn.close()
         return
 
     trade = pending_trades[0]
@@ -84,6 +87,7 @@ def main():
         tick = mt5.symbol_info_tick(mt5_symbol)
         if tick is None:
             logger.error(f"❌ Could not get price for {mt5_symbol}.")
+            conn.close()
             return
         
         if direction == "LONG":
@@ -95,15 +99,17 @@ def main():
 
         if price is None or price == 0:
             logger.error(f"❌ Invalid price for {mt5_symbol}.")
+            conn.close()
             return
             
     except Exception as e:
         logger.error(f"Failed to get price for {mt5_symbol}: {e}")
+        conn.close()
         return
 
-    # 5. Dynamically calculate SL/TP (to avoid Invalid Stops error)
-    sl_pct = 0.005 # 0.5% away
-    tp_pct = 0.01  # 1.0% away
+    # 5. Dynamically calculate SL/TP
+    sl_pct = 0.005
+    tp_pct = 0.01
     
     if direction == "LONG":
         sl = price * (1 - sl_pct)
@@ -141,6 +147,7 @@ def main():
         logger.error(f"Error sending order: {e}")
     finally:
         mt5.shutdown()
+        conn.close()
 
 if __name__ == "__main__":
     main()
