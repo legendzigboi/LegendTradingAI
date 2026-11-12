@@ -1,6 +1,5 @@
 import os
 import time
-import subprocess
 import MetaTrader5 as mt5
 import logging
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
@@ -22,41 +21,35 @@ def map_symbol_to_mt5(symbol):
     return symbol
 
 def main():
-    logger.info("Starting MT5 terminal in portable mode...")
-    # Start the terminal with login credentials
-    subprocess.Popen([
-        MT5_PATH,
-        f"/login:{MT5_LOGIN}",
-        f"/password:{MT5_PASSWORD}",
-        f"/server:{MT5_SERVER}",
-        "/portable"
-    ])
+    logger.info("Initializing MT5 with login credentials...")
     
-    logger.info("Waiting 20 seconds for MT5 to initialize...")
-    time.sleep(20)
-
-    logger.info("Connecting Python to MT5...")
-    # Initialize with explicit path and a longer timeout
-    if not mt5.initialize(path=MT5_PATH, timeout=60000):
+    # 🚨 Initialize with login details and a 2-minute timeout 🚨
+    if not mt5.initialize(
+        path=MT5_PATH, 
+        login=MT5_LOGIN, 
+        password=MT5_PASSWORD, 
+        server=MT5_SERVER, 
+        timeout=120000, 
+        portable=True
+    ):
         logger.error(f"MT5 initialization failed: {mt5.last_error()}")
         return
 
     logger.info("Connected to MT5!")
     
-    # Log in again to be sure
-    authorized = mt5.login(login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER)
-    if not authorized:
-        logger.error(f"Login failed: {mt5.last_error()}")
+    account_info = mt5.account_info()
+    if account_info is None:
+        logger.error("Connected but not logged in.")
         mt5.shutdown()
         return
+        
+    logger.info(f"Logged in as: {account_info.login} on {account_info.server}")
 
-    logger.info(f"Logged in as: {mt5.account_info().login}")
-
-    # Check if trading is allowed
     terminal_info = mt5.terminal_info()
+    logger.info(f"Trade Allowed: {terminal_info.trade_allowed}")
+    
     if not terminal_info.trade_allowed:
-        logger.error("❌ CRITICAL: Trade Allowed is False. The MT5 terminal has not enabled algorithmic trading.")
-        logger.error("Please ensure the terminal is configured to allow Algo Trading.")
+        logger.error("❌ CRITICAL: Trade Allowed is False. The common.ini fix didn't work.")
         mt5.shutdown()
         return
 
@@ -75,11 +68,9 @@ def main():
 
     logger.info(f"Mapping symbol: {original_symbol} -> {mt5_symbol}")
 
-    # Select symbol
     mt5.symbol_select(mt5_symbol, True)
     time.sleep(2)
 
-    # Get current price
     tick = mt5.symbol_info_tick(mt5_symbol)
     if tick is None:
         logger.error(f"❌ Could not get price for {mt5_symbol}.")
@@ -98,7 +89,6 @@ def main():
         mt5.shutdown()
         return
 
-    # Dynamically calculate SL/TP
     sl_pct = 0.005
     tp_pct = 0.01
     if direction == "LONG":
@@ -108,7 +98,6 @@ def main():
         sl = price * (1 + sl_pct)
         tp = price * (1 - tp_pct)
 
-    # Send trade
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": mt5_symbol,
