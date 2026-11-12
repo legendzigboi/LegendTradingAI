@@ -1,4 +1,4 @@
-name: MT5 Executor
+name: MT5 Executor (Windows Native)
 
 on:
   schedule:
@@ -7,52 +7,44 @@ on:
 
 jobs:
   execute-trades:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest # 🚨 Use a native Windows runner 🚨
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Start MT5 API Container
-        env:
-          LOGIN: ${{ secrets.MT5_LOGIN }}
-          PASS: ${{ secrets.MT5_PASSWORD }}
-          SERV: ${{ secrets.MT5_SERVER }}
-        run: |
-          docker pull jsfrnc/mt5-docker-api:latest
-          # 🚨 Start the container with ports 3000 (VNC) and 8000 (REST API) 🚨
-          docker run -d --name mt5api \
-            -p 3000:3000 \
-            -p 8000:8000 \
-            -e VNC_PASSWORD=legendai \
-            -e MT5_LOGIN="$LOGIN" \
-            -e MT5_PASSWORD="$PASS" \
-            -e MT5_SERVER="$SERV" \
-            jsfrnc/mt5-docker-api:latest
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-      - name: Wait for MT5 API to be Ready
+      - name: Install MT5 Terminal
+        shell: powershell
         run: |
-          echo "Waiting for MT5 REST API on port 8000..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8000/docs > /dev/null; then
-              echo "✅ MT5 REST API is UP on port 8000!"
-              exit 0
-            fi
-            echo "Attempt $i/30: Port 8000 not ready. Waiting 10 seconds..."
-            sleep 10
-          done
+          Write-Host "Downloading MT5..."
+          $installerPath = "$env:TEMP\mt5setup.exe"
+          $downloadUrl = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
           
-          echo "❌ MT5 API failed to start. Dumping Docker Logs:"
-          docker logs mt5api
-          exit 1
+          Write-Host "Installing MT5 silently..."
+          Start-Process -FilePath $installerPath -ArgumentList "/auto" -Wait
+          
+          Write-Host "Verifying installation..."
+          if (Test-Path "C:\Program Files\MetaTrader 5\terminal64.exe") {
+              Write-Host "✅ MT5 installed successfully."
+          } else {
+              Write-Error "❌ MT5 installation failed."
+          }
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests psycopg2-binary python-dotenv
+          pip install MetaTrader5 psycopg2-binary python-dotenv
 
-      - name: Run MT5 Worker (via REST API)
+      - name: Run MT5 Worker (Native Windows)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          MT5_API_URL: http://localhost:8000
+          MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
+          MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
+          MT5_SERVER: ${{ secrets.MT5_SERVER }}
         run: python mt5_worker.py
