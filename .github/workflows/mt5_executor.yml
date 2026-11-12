@@ -20,15 +20,14 @@ jobs:
           SERV: ${{ secrets.MT5_SERVER }}
         run: |
           docker pull liberatti/mt5bridge:latest
-          # 🚨 CRITICAL: Set the startup symbol to ensure it's in Market Watch 🚨
-          # 🚨 CRITICAL: Enable algorithmic trading 🚨
+          # 🚨 THE FIX: Use MT5_ENABLE_TRADING=1 instead of MT5_TRADE_ALLOWED=true 🚨
           docker run -d --name mt5bridge -p 5000:5000 \
             -e MT5_LOGIN="$LOGIN" \
             -e MT5_PASSWORD="$PASS" \
             -e MT5_SERVER="$SERV" \
             -e MT5_STARTUP_SYMBOL=USDJPY \
             -e MT5_STARTUP_PERIOD=H1 \
-            -e MT5_TRADE_ALLOWED=true \
+            -e MT5_ENABLE_TRADING=1 \
             -e SECURITY_ENABLED=false \
             liberatti/mt5bridge:latest
 
