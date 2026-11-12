@@ -6,37 +6,28 @@ from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BRIDGE_URL = os.environ.get("MT5_BRIDGE_URL", "http://localhost:5000/api")
+# The bridge runs on localhost:5000 without the /api prefix
+BRIDGE_URL = os.environ.get("MT5_BRIDGE_URL", "http://localhost:5000")
 
 def map_symbol_to_mt5(symbol):
-    """
-    Maps the bot's symbol (Yahoo/Binance) to the MT5 broker's symbol (FBS).
-    """
+    """Maps the bot's symbol to the MT5 broker's symbol (FBS)."""
     symbol = symbol.upper()
-    
-    # 1. Forex (remove '=X')
     if symbol.endswith("=X"):
         return symbol.replace("=X", "")
-        
-    # 2. Gold (GC=F -> XAUUSD)
     if symbol == "GC=F":
         return "XAUUSD"
-        
-    # 3. Crypto (FBS uses BTCUSD, not BTCUSDT)
     if symbol == "BTCUSDT":
         return "BTCUSD"
     if symbol == "ETHUSDT":
         return "ETHUSD"
-        
-    # 4. Stocks (AAPL, TSLA, etc.) usually stay the same
     return symbol
 
 def main():
     logger.info(f"Connecting to MT5 Bridge at {BRIDGE_URL}...")
     
-    # 1. Check account using the documented endpoint
+    # 1. Get account info (official Python API function: account_info)
     try:
-        resp = requests.get(f"{BRIDGE_URL}/account", timeout=10)
+        resp = requests.get(f"{BRIDGE_URL}/account_info", timeout=10)
         if resp.status_code != 200:
             logger.error(f"Bridge returned error: {resp.text}")
             return
@@ -62,9 +53,9 @@ def main():
 
     logger.info(f"Mapping symbol: {original_symbol} -> {mt5_symbol}")
 
-    # 3. Get current price using the documented tick endpoint
+    # 3. Get current price (official Python API function: symbol_info_tick)
     try:
-        price_resp = requests.get(f"{BRIDGE_URL}/tick/{mt5_symbol}", timeout=10)
+        price_resp = requests.get(f"{BRIDGE_URL}/symbol_info_tick/{mt5_symbol}", timeout=10)
         price_data = price_resp.json().get("data", {})
         
         if direction == "LONG":
@@ -82,20 +73,25 @@ def main():
         logger.error(f"Failed to get price for {mt5_symbol}: {e}")
         return
 
-    # 4. Send the trade using the high-level helper endpoint
+    # 4. Send the trade (official Python API function: order_send)
     payload = {
+        "action": "TRADE_ACTION_DEAL",
         "symbol": mt5_symbol,
-        "order_type": order_type,
         "volume": float(lot),
+        "type": order_type,
         "price": float(price),
         "sl": float(sl),
         "tp": float(tp),
-        "comment": "Legend AI"
+        "deviation": 20,
+        "magic": 123456,
+        "comment": "Legend AI",
+        "type_time": "ORDER_TIME_GTC",
+        "type_filling": "ORDER_FILLING_IOC",
     }
     
     logger.info(f"Sending order via bridge: {payload}")
     try:
-        resp = requests.post(f"{BRIDGE_URL}/order/open", json=payload, timeout=10)
+        resp = requests.post(f"{BRIDGE_URL}/order_send", json=payload, timeout=10)
         result = resp.json()
         
         # Check the return code (10009 means successful in MT5)
