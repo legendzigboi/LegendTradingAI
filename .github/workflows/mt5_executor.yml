@@ -20,7 +20,14 @@ jobs:
           SERV: ${{ secrets.MT5_SERVER }}
         run: |
           docker pull liberatti/mt5bridge:latest
-          docker run -d --name mt5bridge -p 5000:5000 -e MT5_LOGIN="$LOGIN" -e MT5_PASSWORD="$PASS" -e MT5_SERVER="$SERV" -e SECURITY_ENABLED=false liberatti/mt5bridge:latest
+          # 🚨 Added MT5_TRADE_ALLOWED=true 🚨
+          docker run -d --name mt5bridge -p 5000:5000 \
+            -e MT5_LOGIN="$LOGIN" \
+            -e MT5_PASSWORD="$PASS" \
+            -e MT5_SERVER="$SERV" \
+            -e MT5_TRADE_ALLOWED=true \
+            -e SECURITY_ENABLED=false \
+            liberatti/mt5bridge:latest
 
       - name: Wait for MT5 Bridge to be Ready
         run: |
@@ -34,7 +41,6 @@ jobs:
             sleep 10
           done
           
-          echo "❌ MT5 Bridge failed to start. Dumping Docker Logs:"
           docker logs mt5bridge
           exit 1
 
