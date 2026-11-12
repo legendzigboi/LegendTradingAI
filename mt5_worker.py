@@ -18,24 +18,25 @@ def map_symbol_to_mt5(symbol):
 def main():
     logger.info("Connecting to MT5 via RPyC (mt5linux)...")
     
-    # 🚨 RETRY LOOP: Wait up to 3 minutes for the RPyC server to be ready 🚨
+    # 🚨 THE FIX: Wait up to 5 minutes for the RPyC server to be ready 🚨
     mt5 = None
-    for attempt in range(18): # 18 * 10s = 180s
+    for attempt in range(30): # 30 * 10s = 300 seconds (5 minutes)
         try:
+            logger.info(f"Attempt {attempt+1}/30: Connecting to RPyC server on port 8001...")
             mt5 = MetaTrader5(host="localhost", port=8001)
             if mt5.initialize():
-                logger.info("✅ Connected to MT5 terminal via RPyC.")
+                logger.info("✅ Successfully connected to MT5 terminal via RPyC.")
                 break
             else:
-                logger.warning(f"Attempt {attempt+1}/18: mt5.initialize() failed. Retrying...")
+                logger.warning(f"mt5.initialize() failed. The MT5 terminal might not be ready yet.")
                 mt5 = None
         except Exception as e:
-            logger.warning(f"Attempt {attempt+1}/18: Connection failed ({e}). Retrying...")
+            logger.warning(f"Connection failed: {e}. Retrying in 10 seconds...")
         
         time.sleep(10)
     
     if mt5 is None:
-        logger.error("❌ CRITICAL: Could not connect to MT5 RPyC server after 3 minutes.")
+        logger.error("❌ CRITICAL: Could not connect to MT5 RPyC server after 5 minutes. Check Docker logs.")
         return
 
     # 1. Check account and TRADE ALLOWED status
@@ -50,8 +51,7 @@ def main():
         logger.info(f"Trade Allowed: {terminal_info.trade_allowed}")
         
         if not terminal_info.trade_allowed:
-            logger.error("❌ CRITICAL: Trade Allowed is False. The MT5 terminal has not enabled algorithmic trading.")
-            logger.error("Please check the VNC interface to enable Algo Trading.")
+            logger.error("❌ CRITICAL: Trade Allowed is False. You must enable Algo Trading in the MT5 terminal.")
             return
     except Exception as e:
         logger.error(f"Failed to get account info: {e}")
@@ -101,9 +101,9 @@ def main():
         logger.error(f"Failed to get price for {mt5_symbol}: {e}")
         return
 
-    # 5. Dynamically calculate SL/TP
-    sl_pct = 0.005
-    tp_pct = 0.01
+    # 5. Dynamically calculate SL/TP (to avoid Invalid Stops error)
+    sl_pct = 0.005 # 0.5% away
+    tp_pct = 0.01  # 1.0% away
     
     if direction == "LONG":
         sl = price * (1 - sl_pct)
