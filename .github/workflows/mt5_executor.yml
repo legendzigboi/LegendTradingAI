@@ -20,7 +20,7 @@ jobs:
           SERV: ${{ secrets.MT5_SERVER }}
         run: |
           docker pull gmag11/metatrader5_vnc:2.3
-          # 🚨 Start the VNC container. Port 3000 is for the VNC web interface, 8001 is for RPyC.
+          # 🚨 Start the container and expose port 8001 for RPyC 🚨
           docker run -d --name mt5vnc \
             -p 3000:3000 \
             -p 8001:8001 \
@@ -29,17 +29,26 @@ jobs:
             -e MT5_SERVER="$SERV" \
             gmag11/metatrader5_vnc:2.3
 
-      - name: Wait for MT5 VNC to be Ready
+      - name: Wait for MT5 RPyC to be Ready
         run: |
-          echo "Waiting for MT5 VNC to boot..."
-          sleep 60
-          echo "Checking VNC endpoint..."
-          curl -s http://localhost:3000/ | head -n 1
+          echo "Waiting for MT5 RPyC server on port 8001..."
+          for i in {1..30}; do
+            if nc -z localhost 8001; then
+              echo "✅ MT5 RPyC server is UP on port 8001!"
+              exit 0
+            fi
+            echo "Attempt $i/30: Port 8001 not ready. Waiting 10 seconds..."
+            sleep 10
+          done
+          
+          echo "❌ MT5 RPyC server failed to start. Dumping Docker Logs:"
+          docker logs mt5vnc
+          exit 1
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install rpyc psycopg2-binary python-dotenv
+          pip install mt5linux psycopg2-binary python-dotenv
 
       - name: Run MT5 Worker (via RPyC)
         env:

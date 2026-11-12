@@ -1,7 +1,7 @@
 import os
 import time
-import rpyc
 import logging
+from mt5linux import MetaTrader5
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
 
 logging.basicConfig(level=logging.INFO)
@@ -16,14 +16,26 @@ def map_symbol_to_mt5(symbol):
     return symbol
 
 def main():
-    logger.info("Connecting to MT5 via RPyC...")
-    try:
-        # Connect to the RPyC server exposed by the container
-        conn = rpyc.classic.connect("localhost", 8001)
-        mt5 = conn.modules.MetaTrader5
-        logger.info("✅ Connected to MT5 terminal.")
-    except Exception as e:
-        logger.error(f"Failed to connect to MT5 RPyC: {e}")
+    logger.info("Connecting to MT5 via RPyC (mt5linux)...")
+    
+    # 🚨 RETRY LOOP: Wait up to 3 minutes for the RPyC server to be ready 🚨
+    mt5 = None
+    for attempt in range(18): # 18 * 10s = 180s
+        try:
+            mt5 = MetaTrader5(host="localhost", port=8001)
+            if mt5.initialize():
+                logger.info("✅ Connected to MT5 terminal via RPyC.")
+                break
+            else:
+                logger.warning(f"Attempt {attempt+1}/18: mt5.initialize() failed. Retrying...")
+                mt5 = None
+        except Exception as e:
+            logger.warning(f"Attempt {attempt+1}/18: Connection failed ({e}). Retrying...")
+        
+        time.sleep(10)
+    
+    if mt5 is None:
+        logger.error("❌ CRITICAL: Could not connect to MT5 RPyC server after 3 minutes.")
         return
 
     # 1. Check account and TRADE ALLOWED status
@@ -34,9 +46,10 @@ def main():
             return
         
         logger.info(f"✅ Connected to account: {account_info.login}")
-        logger.info(f"Trade Allowed: {mt5.terminal_info().trade_allowed}")
+        terminal_info = mt5.terminal_info()
+        logger.info(f"Trade Allowed: {terminal_info.trade_allowed}")
         
-        if not mt5.terminal_info().trade_allowed:
+        if not terminal_info.trade_allowed:
             logger.error("❌ CRITICAL: Trade Allowed is False. The MT5 terminal has not enabled algorithmic trading.")
             logger.error("Please check the VNC interface to enable Algo Trading.")
             return
@@ -126,6 +139,8 @@ def main():
             logger.error(f"Order failed: {result.comment}")
     except Exception as e:
         logger.error(f"Error sending order: {e}")
+    finally:
+        mt5.shutdown()
 
 if __name__ == "__main__":
     main()
