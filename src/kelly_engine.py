@@ -21,8 +21,16 @@ async def calculate_kelly_position_size(symbol, timeframe, entry, stop_loss, tp1
     sl_distance_pct = risk_distance / entry
     
     suggested_lot = risk_amount / (entry * sl_distance_pct) if sl_distance_pct > 0 else 0
+    
+    # 🚨 THE FIX: Cap the lot size to prevent account blow-ups 🚨
+    # 0.10 is safe for a $1000 account. (Use 1.0 for Cent accounts).
+    MAX_LOT_SIZE = 0.10 
+    
     suggested_lot = round(suggested_lot / 1000, 2) 
-    if suggested_lot < 0.01: suggested_lot = 0.01
+    if suggested_lot > MAX_LOT_SIZE:
+        suggested_lot = MAX_LOT_SIZE
+    if suggested_lot < 0.01: 
+        suggested_lot = 0.01
 
     sizing_text = f"Risk: {base_risk_pct*100:.2f}% of $1000 = ${risk_amount:.2f}"
     if hist_win_rate is not None:
