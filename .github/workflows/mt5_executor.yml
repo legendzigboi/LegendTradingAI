@@ -13,43 +13,46 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Start MT5 VNC Container
+      - name: Start MT5 API Container
         env:
           LOGIN: ${{ secrets.MT5_LOGIN }}
           PASS: ${{ secrets.MT5_PASSWORD }}
           SERV: ${{ secrets.MT5_SERVER }}
         run: |
-          docker pull gmag11/metatrader5_vnc:2.3
-          docker run -d --name mt5vnc \
+          docker pull jsfrnc/mt5-docker-api:latest
+          # 🚨 Start the container with ports 3000 (VNC) and 8000 (REST API) 🚨
+          docker run -d --name mt5api \
             -p 3000:3000 \
-            -p 8001:8001 \
+            -p 8000:8000 \
+            -e VNC_PASSWORD=legendai \
             -e MT5_LOGIN="$LOGIN" \
             -e MT5_PASSWORD="$PASS" \
             -e MT5_SERVER="$SERV" \
-            gmag11/metatrader5_vnc:2.3
+            jsfrnc/mt5-docker-api:latest
 
-      - name: Wait for MT5 RPyC to be Ready
+      - name: Wait for MT5 API to be Ready
         run: |
-          echo "Waiting for MT5 RPyC server on port 8001..."
+          echo "Waiting for MT5 REST API on port 8000..."
           for i in {1..30}; do
-            if nc -z localhost 8001; then
-              echo "✅ MT5 RPyC server is UP on port 8001!"
+            if curl -s http://localhost:8000/docs > /dev/null; then
+              echo "✅ MT5 REST API is UP on port 8000!"
               exit 0
             fi
-            echo "Attempt $i/30: Port 8001 not ready. Waiting 10 seconds..."
+            echo "Attempt $i/30: Port 8000 not ready. Waiting 10 seconds..."
             sleep 10
           done
           
-          echo "❌ MT5 RPyC server failed to start. Dumping Docker Logs:"
-          docker logs mt5vnc
+          echo "❌ MT5 API failed to start. Dumping Docker Logs:"
+          docker logs mt5api
           exit 1
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install rpyc psycopg2-binary python-dotenv
+          pip install requests psycopg2-binary python-dotenv
 
-      - name: Run MT5 Worker (via raw RPyC)
+      - name: Run MT5 Worker (via REST API)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MT5_API_URL: http://localhost:8000
         run: python mt5_worker.py
