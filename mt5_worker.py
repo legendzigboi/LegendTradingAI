@@ -1,7 +1,14 @@
 import os
+import sys
 import time
-import MetaTrader5 as mt5
 import logging
+
+# 🚨 Add the patch to our path and import it FIRST 🚨
+sys.path.append(os.path.join(os.path.dirname(__file__), 'wine-mt5-ipc-patch'))
+import patch_wine_mt5  
+
+# Now it's safe to import MetaTrader5
+import MetaTrader5 as mt5
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
 
 logging.basicConfig(level=logging.INFO)
@@ -21,16 +28,14 @@ def map_symbol_to_mt5(symbol):
     return symbol
 
 def main():
-    logger.info("Initializing MT5 with login credentials...")
+    logger.info("Initializing MT5 with login credentials and IPC Patch...")
     
-    # 🚨 Initialize with login details and a 2-minute timeout 🚨
     if not mt5.initialize(
         path=MT5_PATH, 
         login=MT5_LOGIN, 
         password=MT5_PASSWORD, 
         server=MT5_SERVER, 
-        timeout=120000, 
-        portable=True
+        timeout=120000
     ):
         logger.error(f"MT5 initialization failed: {mt5.last_error()}")
         return
@@ -49,11 +54,10 @@ def main():
     logger.info(f"Trade Allowed: {terminal_info.trade_allowed}")
     
     if not terminal_info.trade_allowed:
-        logger.error("❌ CRITICAL: Trade Allowed is False. The common.ini fix didn't work.")
+        logger.error("❌ CRITICAL: Trade Allowed is False.")
         mt5.shutdown()
         return
 
-    # Get pending trades
     pending_trades = get_pending_mt5_trades()
     if not pending_trades:
         logger.info("No pending trades in the database.")
