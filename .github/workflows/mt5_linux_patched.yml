@@ -6,7 +6,7 @@ on:
 jobs:
   execute-trades:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # Give it enough time
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Repository
@@ -16,38 +16,40 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y wine wine32 wine64 xvfb python3-pip winetricks
+          sudo apt-get install -y wine wine32 wine64 xvfb python3-pip winetricks curl
 
       - name: Initialize Wine and Xvfb
         run: |
-          # Start Xvfb manually on display :99
           Xvfb :99 -screen 0 1024x768x24 &
           export DISPLAY=:99
           export WINEPREFIX=$HOME/.wine
           export WINEDEBUG=-all
 
-          # Initialize the Wine prefix
           wineboot --init
           echo "Waiting for Wine to settle..."
           sleep 10
+          
+          # 🚨 Install missing Windows dependencies 🚨
+          winetricks -q corefonts vcrun2019
 
       - name: Install MT5 via Wine
         run: |
+          set -x # 🚨 Print every command before executing
           export DISPLAY=:99
           export WINEPREFIX=$HOME/.wine
           export WINEDEBUG=-all
 
-          wget -q https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
+          # Use curl to download and show errors
+          curl -L -o mt5setup.exe https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
           
-          # Run the installer
+          # Try running the installer
           wine mt5setup.exe /auto
           
           echo "Waiting for MT5 to install..."
           sleep 15
           
-          # 🚨 DIAGNOSTIC: Check if MT5 files exist
           echo "--- Listing MT5 Directory ---"
-          ls -la "$HOME/.wine/drive_c/Program Files/MetaTrader 5/"
+          ls -la "$HOME/.wine/drive_c/Program Files/MetaTrader 5/" || echo "Directory not found"
 
       - name: Install Python Dependencies
         run: |
