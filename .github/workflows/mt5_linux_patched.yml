@@ -44,3 +44,4 @@ jobs:
           export WINEDEBUG=-all
           echo "--- Starting Xvfb and running Python ---"
           xvfb-run python mt5_worker.py
+# Force refresh
