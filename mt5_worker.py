@@ -3,11 +3,15 @@ import sys
 import time
 import logging
 
-# 🚨 Add the patch to our path and import it FIRST 🚨
-sys.path.append(os.path.join(os.path.dirname(__file__), 'wine-mt5-ipc-patch'))
-import patch_wine_mt5  
+# 🚨 Only apply the patch if we are on Linux (GitHub Actions Linux Runner) 🚨
+if sys.platform.startswith("linux"):
+    try:
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'wine-mt5-ipc-patch'))
+        import patch_wine_mt5
+        logging.info("✅ Applied Wine IPC Patch for Linux.")
+    except ImportError:
+        logging.warning("⚠️ Could not import wine patch, continuing without it.")
 
-# Now it's safe to import MetaTrader5
 import MetaTrader5 as mt5
 from src.signal_db import get_pending_mt5_trades, mark_mt5_trade_executed
 
@@ -28,7 +32,7 @@ def map_symbol_to_mt5(symbol):
     return symbol
 
 def main():
-    logger.info("Initializing MT5 with login credentials and IPC Patch...")
+    logger.info("Initializing MT5...")
     
     if not mt5.initialize(
         path=MT5_PATH, 
