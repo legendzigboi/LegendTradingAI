@@ -1,11 +1,13 @@
 name: MT5 Executor (Linux + Wine + Patch)
 
 on:
-  workflow_dispatch: # ONLY manual for now
+  workflow_dispatch:
 
 jobs:
   execute-trades:
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # Give it enough time
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -16,17 +18,36 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wine wine32 wine64 xvfb python3-pip winetricks
 
-      - name: Install MT5 via Wine
+      - name: Initialize Wine and Xvfb
         run: |
-          wget -q https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
+          # Start Xvfb manually on display :99
+          Xvfb :99 -screen 0 1024x768x24 &
+          export DISPLAY=:99
           export WINEPREFIX=$HOME/.wine
           export WINEDEBUG=-all
-          xvfb-run wine mt5setup.exe /auto
-          echo "Waiting for MT5 to settle..."
+
+          # Initialize the Wine prefix
+          wineboot --init
+          echo "Waiting for Wine to settle..."
           sleep 10
+
+      - name: Install MT5 via Wine
+        run: |
+          export DISPLAY=:99
+          export WINEPREFIX=$HOME/.wine
+          export WINEDEBUG=-all
+
+          wget -q https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
           
-          echo "--- File listing of MT5 directory ---"
-          find $HOME/.wine/drive_c/Program\ Files/MetaTrader\ 5/ || echo "Directory not found!"
+          # Run the installer
+          wine mt5setup.exe /auto
+          
+          echo "Waiting for MT5 to install..."
+          sleep 15
+          
+          # 🚨 DIAGNOSTIC: Check if MT5 files exist
+          echo "--- Listing MT5 Directory ---"
+          ls -la "$HOME/.wine/drive_c/Program Files/MetaTrader 5/"
 
       - name: Install Python Dependencies
         run: |
@@ -40,8 +61,7 @@ jobs:
           MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
           MT5_SERVER: ${{ secrets.MT5_SERVER }}
         run: |
+          export DISPLAY=:99
           export WINEPREFIX=$HOME/.wine
           export WINEDEBUG=-all
-          echo "--- Starting Xvfb and running Python ---"
-          xvfb-run python mt5_worker.py
-# Force refresh
+          python mt5_worker.py
