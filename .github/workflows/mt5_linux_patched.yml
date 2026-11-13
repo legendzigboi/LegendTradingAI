@@ -1,9 +1,7 @@
 name: MT5 Executor (Linux + Wine + Patch)
 
 on:
-  schedule:
-    - cron: '3,18,33,48 * * * *'
-  workflow_dispatch:
+  workflow_dispatch: # ONLY manual for now
 
 jobs:
   execute-trades:
@@ -20,20 +18,22 @@ jobs:
 
       - name: Install MT5 via Wine
         run: |
-          # Download MT5 installer
-          wget https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
-          
-          # Run installer silently with Wine
+          wget -q https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
           export WINEPREFIX=$HOME/.wine
           export WINEDEBUG=-all
           xvfb-run wine mt5setup.exe /auto
+          echo "Waiting for MT5 to settle..."
+          sleep 10
+          
+          echo "--- File listing of MT5 directory ---"
+          find $HOME/.wine/drive_c/Program\ Files/MetaTrader\ 5/ || echo "Directory not found!"
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install MetaTrader5 psycopg2-binary python-dotenv
 
-      - name: Run MT5 Worker with Patch
+      - name: Run MT5 Diagnostic
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
@@ -42,5 +42,5 @@ jobs:
         run: |
           export WINEPREFIX=$HOME/.wine
           export WINEDEBUG=-all
-          # Use xvfb-run to provide the virtual display
+          echo "--- Starting Xvfb and running Python ---"
           xvfb-run python mt5_worker.py
