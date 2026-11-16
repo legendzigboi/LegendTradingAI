@@ -20,36 +20,42 @@ jobs:
 
       - name: Initialize Wine and Xvfb
         run: |
+          # Start virtual display
           Xvfb :99 -screen 0 1024x768x24 &
-          export DISPLAY=:99
+          echo "Waiting for Xvfb..."
+          sleep 2
+          
+          # Initialize 64-bit Wine prefix
+          export WINEARCH=win64
           export WINEPREFIX=$HOME/.wine
-          export WINEDEBUG=-all
-
           wineboot --init
-          echo "Waiting for Wine to settle..."
-          sleep 10
-          
-          # 🚨 Install missing Windows dependencies 🚨
-          winetricks -q corefonts vcrun2019
+          sleep 5
 
-      - name: Install MT5 via Wine
+      - name: Install MT5 via Wine (Diagnostic)
+        shell: bash
+        env:
+          DISPLAY: ":99"
+          WINEPREFIX: /home/runner/.wine
+          WINEARCH: win64
         run: |
-          set -x # 🚨 Print every command before executing
-          export DISPLAY=:99
-          export WINEPREFIX=$HOME/.wine
-          export WINEDEBUG=-all
+          set -e
+          echo "=== Wine version ==="
+          wine --version
 
-          # Use curl to download and show errors
-          curl -L -o mt5setup.exe https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
-          
-          # Try running the installer
-          wine mt5setup.exe /auto
-          
-          echo "Waiting for MT5 to install..."
-          sleep 15
-          
-          echo "--- Listing MT5 Directory ---"
-          ls -la "$HOME/.wine/drive_c/Program Files/MetaTrader 5/" || echo "Directory not found"
+          echo "=== Download Installer ==="
+          curl -fL --retry 3 -o mt5setup.exe https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
+          file mt5setup.exe
+
+          echo "=== Run MT5 installer ==="
+          # Capture output to log file and show it if it fails
+          timeout 600s wine mt5setup.exe /auto > mt5-install.log 2>&1 || {
+            echo "❌ MT5 installation failed. Showing last 100 lines of log:"
+            tail -n 100 mt5-install.log
+            exit 1
+          }
+
+          echo "=== Search for installed terminal ==="
+          find "$WINEPREFIX/drive_c" -iname "terminal64.exe" -o -iname "terminal.exe" 2>/dev/null || true
 
       - name: Install Python Dependencies
         run: |
@@ -62,8 +68,8 @@ jobs:
           MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
           MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
           MT5_SERVER: ${{ secrets.MT5_SERVER }}
+          DISPLAY: ":99"
+          WINEPREFIX: /home/runner/.wine
+          WINEARCH: win64
         run: |
-          export DISPLAY=:99
-          export WINEPREFIX=$HOME/.wine
-          export WINEDEBUG=-all
           python mt5_worker.py
