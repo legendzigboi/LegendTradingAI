@@ -1,0 +1,113 @@
+name: LegendRDP - Live Windows Desktop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Enable Windows Remote Desktop
+        shell: pwsh
+        env:
+          MACHINE_PASSWORD: ${{ secrets.MACHINE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if (-not $env:MACHINE_PASSWORD) {
+            throw "MACHINE_PASSWORD secret is missing."
+          }
+
+          $password = ConvertTo-SecureString `
+            $env:MACHINE_PASSWORD -AsPlainText -Force
+
+          Set-LocalUser -Name "runneradmin" -Password $password
+
+          Set-ItemProperty `
+            -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+            -Name fDenyTSConnections -Value 0
+
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Restart-Service TermService -Force
+
+          Start-Sleep -Seconds 5
+
+          Get-Service TermService
+
+      - name: Start secure-password RDP relay
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Invoke-WebRequest `
+            "https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-pc-windows-msvc.zip" `
+            -OutFile bore.zip
+
+          Expand-Archive bore.zip -DestinationPath bore
+
+          $boreExe = Get-ChildItem bore -Filter bore.exe -Recurse |
+            Select-Object -First 1
+
+          if (-not $boreExe) {
+            throw "Bore executable not found."
+          }
+
+          $process = Start-Process `
+            -FilePath $boreExe.FullName `
+            -ArgumentList @("local", "3389", "--to", "bore.pub") `
+            -PassThru `
+            -RedirectStandardOutput bore.out `
+            -RedirectStandardError bore.err
+
+          $endpoint = $null
+          $deadline = (Get-Date).AddSeconds(90)
+
+          while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+
+            $logs = ""
+            if (Test-Path bore.out) {
+              $logs += Get-Content bore.out -Raw
+            }
+            if (Test-Path bore.err) {
+              $logs += Get-Content bore.err -Raw
+            }
+
+            if ($logs -match 'listening at ([^\s]+)') {
+              $endpoint = $Matches[1]
+              break
+            }
+
+            if ($process.HasExited) {
+              throw "Bore exited unexpectedly: $logs"
+            }
+          }
+
+          if (-not $endpoint) {
+            throw "Could not obtain RDP relay address."
+          }
+
+          Write-Output "RDP_HOST=$endpoint"
+          Write-Output "::notice title=LegendRDP Ready::$endpoint"
+
+          @"
+          ## LegendRDP Windows Desktop
+
+          - Address: `$endpoint`
+          - Username: `runneradmin`
+          - Password: your MACHINE_PASSWORD repository secret
+          - Status: Running
+
+          Keep this workflow running while connected.
+          "@ | Out-File $env:GITHUB_STEP_SUMMARY -Append
+
+          while (-not $process.HasExited) {
+            Start-Sleep -Seconds 15
+          }
+
+          throw "RDP relay stopped."
