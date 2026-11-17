@@ -1,0 +1,34 @@
+name: MT5 Demo Test (Windows)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-mt5:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install MetaTrader5 psycopg2-binary python-dotenv
+
+      - name: Install MT5 Terminal
+        shell: powershell
+        run: .\scripts\install-mt5.ps1
+
+      - name: Run MT5 IPC Test
+        env:
+          FBS_DEMO_LOGIN: ${{ secrets.MT5_LOGIN }}
+          FBS_DEMO_PASSWORD: ${{ secrets.MT5_PASSWORD }}
+          FBS_DEMO_SERVER: ${{ secrets.MT5_SERVER }}
+        run: python scripts/test-mt5-ipc.py
