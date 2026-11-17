@@ -1,0 +1,54 @@
+name: LegendRDP v2 - Looping Windows Desktop
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */5 * * *' # Wakes up every 5 hours
+
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 350 # Stays alive for 5h 50m
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Custom User
+        shell: pwsh
+        env:
+          MACHINE_PASSWORD: ${{ secrets.MACHINE_PASSWORD }}
+        run: .\scripts\setup-windows.ps1
+
+      - name: Install MT5
+        shell: pwsh
+        run: .\scripts\install-mt5.ps1
+
+      - name: Start RDP Relay (bore.pub)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-pc-windows-msvc.zip" -OutFile bore.zip
+          Expand-Archive bore.zip -DestinationPath bore
+          $boreExe = Get-ChildItem bore -Filter bore.exe -Recurse | Select-Object -First 1
+          
+          $process = Start-Process -FilePath $boreExe.FullName -ArgumentList @("local", "3389", "--to", "bore.pub") -PassThru -RedirectStandardOutput bore.out -RedirectStandardError bore.err
+          
+          $endpoint = $null
+          $deadline = (Get-Date).AddSeconds(90)
+          
+          while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+            $logs = ""
+            if (Test-Path bore.out) { $logs += Get-Content bore.out -Raw }
+            if (Test-Path bore.err) { $logs += Get-Content bore.err -Raw }
+            if ($logs -match 'listening at ([^\s]+)') {
+              $endpoint = $Matches[1]
+              break
+            }
+          }
+          
+          Write-Output "RDP_HOST=$endpoint"
+          Write-Output "::notice title=LegendRDP Ready::$endpoint"
+          
+          # Keep the job alive until the very end
+          while (-not $process.HasExited) { Start-Sleep -Seconds 15 }
