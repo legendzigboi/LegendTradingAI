@@ -7,7 +7,16 @@ password = os.environ.get("FBS_DEMO_PASSWORD", "")
 server = os.environ.get("FBS_DEMO_SERVER", "")
 
 print("--- STARTING MT5 IPC TEST ---")
-if not mt5.initialize():
+
+# We will now explicitly point to the path we found
+path = r"C:\Program Files\FBS MetaTrader 5\terminal64.exe" 
+if not os.path.exists(path):
+    print(f"Path {path} not found. Trying default...")
+    path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+
+print(f"Using path: {path}")
+
+if not mt5.initialize(path=path):
     print(f"INITIALIZATION FAILED: {mt5.last_error()}")
     sys.exit(1)
 
